@@ -82,7 +82,13 @@ export type AnalyzeResponse = {
   diseases: { name: string; probability: number }[];
   explainability: { gradcam: boolean; vit_attention: boolean };
   timing: { preprocessing_ms: number; inference_ms: number; explainability_ms: number; total_ms: number };
+  model: { version: string; device: string };
   disclaimer: string;
+};
+
+export type AvailableModel = {
+  key: string; name: string; version: string; description: string;
+  loaded: boolean; error: string | null;
 };
 
 export type AnalysisDetail = {
@@ -108,6 +114,7 @@ export type ModelStatus = {
   respira_ai: string; backend: string; device: string; gpu_name: string | null;
   model_loaded: boolean; error: string | null;
   architecture: Record<string, string>; classes: string[];
+  models: AvailableModel[];
   research_evaluation: Record<string, unknown>;
 };
 

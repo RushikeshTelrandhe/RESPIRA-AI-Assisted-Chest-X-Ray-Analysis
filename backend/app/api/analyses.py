@@ -76,7 +76,7 @@ def _persist_analysis(db: Session, doctor: Doctor, patient: Patient, filename: s
         margin_uncertainty=result["margin_uncertainty"],
         probabilities_json=json.dumps(probs), uncertainties_json=json.dumps(result["uncertainties"]),
         disease_weights_json=json.dumps(result.get("disease_weights", {})),
-        model_version="respira-fusion-1.0", device=result.get("device", ""),
+        model_version=result.get("model_version", "respira-fusion-1.0"), device=result.get("device", ""),
         preprocessing_ms=result["timing"]["preprocessing_ms"], inference_ms=result["timing"]["inference_ms"],
         explainability_ms=(grad or {}).get("explainability_ms", 0.0) + (vit or {}).get("explainability_ms", 0.0),
         total_ms=result["timing"]["total_ms"],
@@ -108,6 +108,7 @@ def _analyze_payload(patient: Patient, study: XRayStudy, analysis: Analysis, dis
             "preprocessing_ms": analysis.preprocessing_ms, "inference_ms": analysis.inference_ms,
             "explainability_ms": analysis.explainability_ms, "total_ms": analysis.total_ms,
         },
+        model={"version": analysis.model_version, "device": analysis.device},
     )
 
 
@@ -115,9 +116,15 @@ def _analyze_payload(patient: Patient, study: XRayStudy, analysis: Analysis, dis
 async def analyze(
     patient_id: str = Form(...),
     file: UploadFile = File(...),
+    model: str = Form("fusion"),
     db: Session = Depends(get_db),
     doctor: Doctor = Depends(get_current_doctor),
 ):
+    from backend.app.services.model_manager import MODEL_KEYS
+
+    model_key = (model or "fusion").strip().lower()
+    if model_key not in MODEL_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unknown model '{model}'. Choose from: {', '.join(MODEL_KEYS)}.")
     patient = db.query(Patient).filter(Patient.id == patient_id, Patient.doctor_id == doctor.id).first()
     if patient is None:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -127,7 +134,7 @@ async def analyze(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        result = await asyncio.to_thread(inference_service.run_inference, img)
+        result = await asyncio.to_thread(inference_service.run_inference, img, model_key)
         # Real explainability generated at analysis time (disease = predicted argmax)
         from app.backend import config as ml_config
 

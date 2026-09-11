@@ -131,6 +131,7 @@ class AnalyzeResponse(BaseModel):
     diseases: list[DiseaseScore]
     explainability: dict
     timing: dict
+    model: dict = {}
     disclaimer: str = DISCLAIMER
 
 

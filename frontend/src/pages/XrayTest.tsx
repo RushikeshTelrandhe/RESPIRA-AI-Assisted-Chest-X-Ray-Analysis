@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { UploadCloud, X } from "lucide-react";
-import { api, type AnalyzeResponse, type Patient } from "../services/api";
+import { api, type AnalyzeResponse, type AvailableModel, type Patient } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import { Disclaimer } from "../components/widgets";
 
 const STAGES = ["Preparing image", "Running AI model", "Calculating predictions", "Generating explanation"];
+
+const FALLBACK_MODELS: AvailableModel[] = [
+  { key: "fusion", name: "Respira Fusion", version: "respira-fusion-1.0", description: "Full EfficientNet-B0 + ViT-B/16 fusion pipeline (recommended)", loaded: true, error: null },
+  { key: "efficientnet", name: "EfficientNet-B0", version: "efficientnet-b0-1.0", description: "CNN baseline, fast single-model prediction", loaded: true, error: null },
+  { key: "vit", name: "ViT-B/16", version: "vit-b16-1.0", description: "Transformer baseline, attention-based prediction", loaded: true, error: null },
+  { key: "densenet", name: "DenseNet-121", version: "densenet121-1.0", description: "Research baseline CNN", loaded: true, error: null },
+];
 
 export function XrayTest() {
   const { token } = useAuth();
@@ -19,9 +26,25 @@ export function XrayTest() {
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(0);
   const [error, setError] = useState("");
+  const [models, setModels] = useState<AvailableModel[]>(FALLBACK_MODELS);
+  const [modelKey, setModelKey] = useState("fusion");
 
   useEffect(() => {
     api.get<Patient[]>("/api/v1/patients", token).then(setPatients).catch(() => undefined);
+  }, [token]);
+  useEffect(() => {
+    api.get<{ models: AvailableModel[] }>("/api/v1/models/status", token)
+      .then((s) => {
+        if (s.models?.length) {
+          setModels(s.models);
+          if (!s.models.some((m) => m.key === modelKey && m.loaded)) {
+            const first = s.models.find((m) => m.loaded);
+            if (first) setModelKey(first.key);
+          }
+        }
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
   useEffect(() => {
     if (!file) { setPreview(null); return; }
@@ -54,6 +77,7 @@ export function XrayTest() {
       const form = new FormData();
       form.append("patient_id", patientId);
       form.append("file", file);
+      form.append("model", modelKey);
       const r = await api.postForm<AnalyzeResponse>("/api/v1/analyze", form, token);
       clearInterval(tick);
       navigate(`/analysis/${r.analysis_id}`);
@@ -101,7 +125,18 @@ export function XrayTest() {
       </div>
 
       <div className="card space-y-3 p-5">
-        <h2 className="font-semibold">Step 3 — Start analysis</h2>
+        <h2 className="font-semibold">Step 3 — Choose AI model & start analysis</h2>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-slate-700">Prediction model</span>
+          <select className="input" value={modelKey} onChange={(e) => setModelKey(e.target.value)} aria-label="Select AI model">
+            {models.map((m) => (
+              <option key={m.key} value={m.key} disabled={!m.loaded}>
+                {m.name}{m.loaded ? "" : " (unavailable)"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-xs text-slate-500">{models.find((m) => m.key === modelKey)?.description}</p>
         {!busy ? (
           <button className="btn-primary" onClick={() => void analyze()} disabled={!file || !patientId}>Analyze with Respira AI</button>
         ) : (

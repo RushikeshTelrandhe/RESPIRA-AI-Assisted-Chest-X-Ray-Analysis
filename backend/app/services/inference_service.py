@@ -13,8 +13,9 @@ import torch
 from PIL import Image
 
 from app.backend import config as ml_config
+from app.backend.config import CLASS_DESCRIPTIONS
 from app.backend.preprocessing import preprocess_pil
-from backend.app.services.model_manager import get_manager
+from backend.app.services.model_manager import MODEL_KEYS, MODEL_REGISTRY, get_manager
 
 MAX_BYTES = 15 * 1024 * 1024
 ALLOWED = {".png", ".jpg", ".jpeg"}
@@ -43,7 +44,87 @@ def validate_image(filename: str, raw: bytes) -> tuple[Image.Image, dict]:
     return img.convert("RGB"), {"width": w, "height": h, "size": len(raw), "filename": filename}
 
 
-def run_inference(image: Image.Image) -> dict:
+def _standalone_logits(model, tensor: torch.Tensor) -> torch.Tensor:
+    """Run a standalone classifier; always returns [B,6] logits."""
+    out = model(tensor)
+    if isinstance(out, dict):
+        return out["logits"]
+    return out
+
+
+def run_standalone(image: Image.Image, model_key: str) -> dict:
+    """Run a single backbone model (softmax, as trained with CrossEntropy)."""
+    import numpy as np
+
+    mgr = get_manager()
+    if not mgr.is_model_ready(model_key):
+        err = mgr.model_errors.get(model_key) or "Respira AI model is not loaded. Check /api/v1/models/status."
+        raise RuntimeError(err)
+    assert mgr.pipeline is not None
+    if model_key == "efficientnet":
+        model = mgr.pipeline.efficientnet
+    elif model_key == "vit":
+        model = mgr.pipeline.vit
+    elif model_key == "densenet":
+        model = mgr.densenet
+    else:  # guarded by caller; defense in depth
+        raise ValueError(f"Unknown model '{model_key}'. Choose from: {', '.join(MODEL_KEYS)}.")
+
+    t0 = time.perf_counter()
+    tensor = mgr.pipeline._preprocess(image).to(mgr.device)
+    t1 = time.perf_counter()
+    with torch.inference_mode():
+        logits = _standalone_logits(model, tensor)
+    t2 = time.perf_counter()
+    probs = torch.softmax(logits, dim=1)[0].detach().cpu().numpy().astype(float)
+
+    from app.backend.pipeline import RespiraPipeline
+
+    entropy = RespiraPipeline._binary_entropy(np.asarray(probs))
+    top_idx = int(np.argmax(probs))
+    ordered = np.sort(np.asarray(probs))
+    sample_uncertainty = float(np.mean(entropy))
+    version = next(m["version"] for m in MODEL_REGISTRY if m["key"] == model_key)
+    return {
+        "predicted_class": ml_config.CLASS_NAMES[top_idx],
+        "confidence": float(probs[top_idx]),
+        "sample_uncertainty": sample_uncertainty,
+        "uncertainty_level": ("Low" if sample_uncertainty < ml_config.LOW_UNCERTAINTY
+                              else "Moderate" if sample_uncertainty < ml_config.MODERATE_UNCERTAINTY else "High"),
+        "margin_uncertainty": float(1.0 - (ordered[-1] - ordered[-2])),
+        "probabilities": {k: float(v) for k, v in zip(ml_config.CLASS_NAMES, probs)},
+        "uncertainties": {k: float(v) for k, v in zip(ml_config.CLASS_NAMES, entropy)},
+        "disease_weights": {},
+        "per_class": [
+            {"name": n, "probability": float(probs[i]),
+             "uncertainty": float(entropy[i]),
+             "risk_level": ("low" if entropy[i] < ml_config.LOW_UNCERTAINTY
+                            else "moderate" if entropy[i] < ml_config.MODERATE_UNCERTAINTY else "high"),
+             "description": CLASS_DESCRIPTIONS.get(n, "")}
+            for i, n in enumerate(ml_config.CLASS_NAMES)
+        ],
+        "timing": {
+            "preprocessing_ms": (t1 - t0) * 1000.0,
+            "inference_ms": (t2 - t1) * 1000.0,
+            "total_ms": (t2 - t0) * 1000.0,
+        },
+        "device": str(mgr.device),
+        "class_order": list(ml_config.CLASS_NAMES),
+        "model_key": model_key,
+        "model_version": version,
+    }
+
+
+def run_inference(image: Image.Image, model_key: str = "fusion") -> dict:
+    """Run the selected model. Returns real result + real timings (ms)."""
+    if model_key not in MODEL_KEYS:
+        raise ValueError(f"Unknown model '{model_key}'. Choose from: {', '.join(MODEL_KEYS)}.")
+    if model_key != "fusion":
+        return run_standalone(image, model_key)
+    return run_fusion(image)
+
+
+def run_fusion(image: Image.Image) -> dict:
     """Run the full fusion pipeline. Returns real result + real timings (ms)."""
     mgr = get_manager()
     if not mgr.ready or mgr.pipeline is None:
@@ -80,4 +161,6 @@ def run_inference(image: Image.Image) -> dict:
         },
         "device": str(mgr.device),
         "class_order": list(ml_config.CLASS_NAMES),
+        "model_key": "fusion",
+        "model_version": "respira-fusion-1.0",
     }
