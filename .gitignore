@@ -1,0 +1,190 @@
+# =========================================================
+# RESPIRA - Git Ignore
+# =========================================================
+
+# ---------------------------------------------------------
+# Python
+# ---------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ---------------------------------------------------------
+# Environment / secrets
+# ---------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------
+# IDE
+# ---------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---------------------------------------------------------
+# Node / React
+# ---------------------------------------------------------
+node_modules/
+frontend/node_modules/
+electron/node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+frontend/dist/
+frontend/build/
+
+# Electron build artifacts
+electron/dist/
+electron/out/
+release/
+
+# ---------------------------------------------------------
+# Logs
+# ---------------------------------------------------------
+*.log
+logs/
+
+# ---------------------------------------------------------
+# Databases / local application data
+# ---------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+
+# ---------------------------------------------------------
+# Original datasets
+# ---------------------------------------------------------
+Lung_Disease_Dataset/
+data/raw/
+data/original/
+data/dataset/
+
+# ---------------------------------------------------------
+# Processed/generated datasets
+# ---------------------------------------------------------
+data/processed/
+data/processed_data/
+data/preprocessed/
+
+# ---------------------------------------------------------
+# Model checkpoints
+# ---------------------------------------------------------
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.safetensors
+*.bin
+
+# ---------------------------------------------------------
+# Generated model outputs
+# ---------------------------------------------------------
+outputs/
+
+# Allow documentation inside outputs
+!outputs/README.md
+
+# ---------------------------------------------------------
+# Generated explainability images
+# ---------------------------------------------------------
+gradcam_outputs/
+attention_outputs/
+heatmaps/
+overlays/
+
+# ---------------------------------------------------------
+# Temporary files
+# ---------------------------------------------------------
+*.tmp
+*.temp
+*.cache
+
+# ---------------------------------------------------------
+# OS files
+# ---------------------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---------------------------------------------------------
+# Large archives
+# ---------------------------------------------------------
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+
+# ---------------------------------------------------------
+# Python tooling
+# ---------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------
+# Temporary notebooks / exports
+# ---------------------------------------------------------
+*.html
+
+
+# =========================================================
+# RESPIRA RUNTIME / APPLICATION STORAGE
+# =========================================================
+
+# Backend runtime storage
+backend_storage/
+
+# Application logs
+logs/
+
+# Test databases
+**/test_*.db
+
+# Runtime uploads
+uploads/
+storage/
+
+# Generated reports
+reports/
+
+# Generated medical images
+analyses/
+
+# =========================================================
+# RESPIRA RUNTIME APPLICATION DATA
+# =========================================================
+
+backend_storage/
+logs/
+
+
+# =========================================================
+# DATASET IMAGES
+# =========================================================
+
+data/acquired/
+# TYPESCRIPT BUILD ARTIFACTS
+*.tsbuildinfo

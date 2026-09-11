@@ -1,0 +1,23 @@
+{
+  "name": "respira-desktop",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Respira desktop shell (Electron) — wraps the React frontend; FastAPI backend runs separately.",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.7.0"
+  },
+  "build": {
+    "appId": "ai.respira.desktop",
+    "productName": "Respira",
+    "files": ["dist/**/*", "../frontend/dist/**/*"],
+    "win": { "target": ["nsis"] }
+  }
+}

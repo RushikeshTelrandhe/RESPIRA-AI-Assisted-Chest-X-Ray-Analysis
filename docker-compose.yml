@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: respira
+      POSTGRES_PASSWORD: respira
+      POSTGRES_DB: respira
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql+psycopg://respira:respira@db:5432/respira
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      FRONTEND_URL: http://localhost:5173
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./outputs:/app/outputs:ro
+      - ./backend_storage:/app/backend_storage
+    depends_on:
+      - db
+
+volumes:
+  pgdata:

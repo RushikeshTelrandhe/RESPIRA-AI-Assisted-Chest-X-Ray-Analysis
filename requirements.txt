@@ -1,0 +1,9 @@
+opencv-python
+pandas
+numpy
+matplotlib
+tqdm
+torch 
+torchvision 
+torchaudio --index-url https://download.pytorch.org/whl/cu130
+scikit-learn
