@@ -11,9 +11,11 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# Research outputs remain in outputs/
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 
-MODELS_DIR = OUTPUTS_DIR / "models"
+# Deployment model checkpoints are stored separately.
+MODELS_DIR = PROJECT_ROOT / "models"
 
 
 # ============================================================
@@ -21,35 +23,30 @@ MODELS_DIR = OUTPUTS_DIR / "models"
 # ============================================================
 
 EFFICIENTNET_CHECKPOINT = (
-    OUTPUTS_DIR
+    MODELS_DIR
     / "efficientnet_b0"
-    / "checkpoints"
     / "best_model.pth"
 )
 
 VIT_CHECKPOINT = (
-    OUTPUTS_DIR
+    MODELS_DIR
     / "vit"
-    / "checkpoints"
     / "best_model.pth"
 )
 
 ADAPTIVE_FUSION_CHECKPOINT = (
-    OUTPUTS_DIR
-    / "fusion"
+    MODELS_DIR
     / "adaptive_fusion"
-    / "checkpoints"
     / "best_model.pth"
 )
 
 CLASSIFICATION_CHECKPOINT = (
-    OUTPUTS_DIR
-    / "fusion"
+    MODELS_DIR
     / "classification"
-    / "checkpoints"
     / "best_model.pth"
 )
 
+DENSENET_CHECKPOINT = MODELS_DIR / "densenet" / "best_model.pth"
 
 # ============================================================
 # MODEL CONFIGURATION
