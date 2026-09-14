@@ -1,156 +1,486 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { UploadCloud, X } from "lucide-react";
-import { api, type AnalyzeResponse, type AvailableModel, type Patient } from "../services/api";
+import { SearchInput } from "../components/SearchInput";
+import { flushSync } from "react-dom";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Check,
+  FileImage,
+  Search,
+  UploadCloud,
+  X,
+  RefreshCw,
+  BrainCircuit,
+  CheckCircle2,
+  ClipboardCheck,
+  UserRound,
+} from "lucide-react";
+import {
+  api,
+  type AnalyzeResponse,
+  type ModelStatus,
+  type Patient,
+} from "../services/api";
 import { useAuth } from "../context/AuthContext";
+import {
+  usePreview,
+  useResource,
+  useUnsavedChanges,
+  useWorkspace,
+} from "../context/WorkspaceContext";
+import { Alert, LoadingBlock, PageHeader } from "../components/UI";
 import { Disclaimer } from "../components/widgets";
-
-const STAGES = ["Preparing image", "Running AI model", "Calculating predictions", "Generating explanation"];
-
-const FALLBACK_MODELS: AvailableModel[] = [
-  { key: "fusion", name: "Respira Fusion", version: "respira-fusion-1.0", description: "Full EfficientNet-B0 + ViT-B/16 fusion pipeline (recommended)", loaded: true, error: null },
-  { key: "efficientnet", name: "EfficientNet-B0", version: "efficientnet-b0-1.0", description: "CNN baseline, fast single-model prediction", loaded: true, error: null },
-  { key: "vit", name: "ViT-B/16", version: "vit-b16-1.0", description: "Transformer baseline, attention-based prediction", loaded: true, error: null },
-  { key: "densenet", name: "DenseNet-121", version: "densenet121-1.0", description: "Research baseline CNN", loaded: true, error: null },
-];
-
+import { errorText } from "../utils/display";
 export function XrayTest() {
   const { token } = useAuth();
-  const navigate = useNavigate();
+  const nav = useNavigate();
   const [params] = useSearchParams();
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [patientId, setPatientId] = useState(params.get("patient") ?? "");
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [meta, setMeta] = useState<{ width: number; height: number; file_size: number; filename: string; preview?: string } | null>(null);
+  const { draft, setDraft, images, cache, setGuard } = useWorkspace();
+  const [patientSearch, setPatientSearch] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [stage, setStage] = useState(0);
   const [error, setError] = useState("");
-  const [models, setModels] = useState<AvailableModel[]>(FALLBACK_MODELS);
-  const [modelKey, setModelKey] = useState("fusion");
-
+  const input = useRef<HTMLInputElement>(null);
+  const fileRequest = useRef(0);
+  const pending = useRef(false);
+  const patients = useResource<Patient[]>("analysis-patients", () =>
+    api.get("/api/v1/patients", token),
+  );
+  const status = useResource<ModelStatus>("model-status", () =>
+    api.get("/api/v1/models/status", token),
+  );
+  const preview = usePreview(draft.file);
   useEffect(() => {
-    api.get<Patient[]>("/api/v1/patients", token).then(setPatients).catch(() => undefined);
-  }, [token]);
+    const fromUrl = params.get("patient");
+    if (fromUrl && !draft.patientId)
+      setDraft((d) => ({ ...d, patientId: fromUrl }));
+  }, [params, draft.patientId, setDraft]);
   useEffect(() => {
-    api.get<{ models: AvailableModel[] }>("/api/v1/models/status", token)
-      .then((s) => {
-        if (s.models?.length) {
-          setModels(s.models);
-          if (!s.models.some((m) => m.key === modelKey && m.loaded)) {
-            const first = s.models.find((m) => m.loaded);
-            if (first) setModelKey(first.key);
-          }
-        }
-      })
-      .catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
-  useEffect(() => {
-    if (!file) { setPreview(null); return; }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-
-  const onFile = async (f: File | undefined) => {
-    setError(""); setMeta(null);
-    if (!f) return;
-    setFile(f);
-    const form = new FormData();
-    form.append("file", f);
-    try {
-      const r = await api.postForm<{ width: number; height: number; file_size: number; filename: string; preview: string }>("/api/v1/xray/upload", form, token);
-      setMeta(r);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Invalid file");
-      setFile(null);
+    const models = status.data?.models;
+    if (!models?.length) return;
+    if (!models.some((m) => m.key === draft.model && m.loaded)) {
+      const first = models.find((m) => m.loaded);
+      if (first) setDraft((d) => ({ ...d, model: first.key }));
     }
-  };
-
-  const analyze = async () => {
-    if (!patientId) return setError("Select a patient first.");
-    if (!file) return setError("Upload a chest X-ray first.");
-    setError(""); setBusy(true); setStage(0);
-    const tick = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 1200);
+  }, [status.data, draft.model, setDraft]);
+  useUnsavedChanges(
+    Boolean(draft.file) || busy,
+    busy
+      ? "An analysis request is running. Leaving may not stop work already sent to the backend."
+      : "Your selected X-ray has not been analyzed. Leave and discard it?",
+  );
+  const filtered = (patients.data ?? []).filter((p) =>
+    (p.full_name + " " + p.patient_code + " " + p.phone)
+      .toLowerCase()
+      .includes(patientSearch.toLowerCase()),
+  );
+  const selectedPatient = patients.data?.find((p) => p.id === draft.patientId);
+  const models = status.data?.models ?? [];
+  const selectedModel = models.find((m) => m.key === draft.model);
+  const workflowIndex = busy
+    ? 4
+    : draft.meta && selectedModel?.loaded
+      ? 3
+      : draft.file
+        ? 2
+        : draft.patientId
+          ? 1
+          : 0;
+  const canAnalyze = Boolean(
+    draft.patientId &&
+      draft.file &&
+      draft.meta &&
+      selectedModel?.loaded &&
+      !uploading &&
+      !busy,
+  );
+  function removeFile() {
+    fileRequest.current++;
+    setDraft((d) => ({ ...d, file: null, meta: null }));
+    if (input.current) input.current.value = "";
+  }
+  async function choose(file?: File) {
+    setError("");
+    if (!file) return;
+    const allowed =
+      /\.(png|jpe?g)$/i.test(file.name) &&
+      (file.type === "" ||
+        file.type === "image/png" ||
+        file.type === "image/jpeg");
+    if (!allowed) {
+      setError("Choose a PNG, JPG or JPEG chest X-ray.");
+      return;
+    }
+    const request = ++fileRequest.current;
+    setDraft((d) => ({ ...d, file, meta: null }));
+    setUploading(true);
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const meta = await api.postForm<{
+        width: number;
+        height: number;
+        file_size: number;
+        filename: string;
+        preview?: string;
+      }>("/api/v1/xray/upload", form, token);
+      if (request === fileRequest.current)
+        setDraft((d) => (d.file === file ? { ...d, meta } : d));
+    } catch (e) {
+      if (request === fileRequest.current) {
+        setError(errorText(e));
+        setDraft((d) => ({ ...d, file: null, meta: null }));
+        if (input.current) input.current.value = "";
+      }
+    } finally {
+      if (request === fileRequest.current) setUploading(false);
+    }
+  }
+  async function analyze(e: FormEvent) {
+    e.preventDefault();
+    if (pending.current || !canAnalyze || !draft.file) return;
+    pending.current = true;
+    setBusy(true);
+    setError("");
+    const submittedFile = draft.file;
     try {
       const form = new FormData();
-      form.append("patient_id", patientId);
-      form.append("file", file);
-      form.append("model", modelKey);
-      const r = await api.postForm<AnalyzeResponse>("/api/v1/analyze", form, token);
-      clearInterval(tick);
-      navigate(`/analysis/${r.analysis_id}`);
+      form.append("patient_id", draft.patientId);
+      form.append("file", submittedFile);
+      form.append("model", draft.model);
+      const result = await api.postForm<AnalyzeResponse>(
+        "/api/v1/analyze",
+        form,
+        token,
+      );
+      cache.invalidate("dashboard");
+      cache.invalidate("history:");
+      cache.invalidate("reports");
+      cache.invalidate("patient-history:" + draft.patientId);
+      flushSync(() => {
+        images.set(result.analysis_id, submittedFile);
+        setDraft({ patientId: "", model: "fusion", file: null, meta: null });
+        setGuard({ active: false, message: "" });
+      });
+      nav("/analysis/" + result.analysis_id);
     } catch (e) {
-      clearInterval(tick);
-      setError(e instanceof Error ? e.message : "Analysis failed");
-    } finally { setBusy(false); }
-  };
-
+      setError(errorText(e));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
-      <h1 className="text-2xl font-bold">New X-Ray Test</h1>
-      {error && <div role="alert" className="card border-rose-200 p-3 text-sm text-rose-700">{error}</div>}
-
-      <div className="card space-y-2 p-5">
-        <h2 className="font-semibold">Step 1 — Select patient</h2>
-        <select className="input" value={patientId} onChange={(e) => setPatientId(e.target.value)} aria-label="Select patient">
-          <option value="">Choose a patient…</option>
-          {patients.map((p) => <option key={p.id} value={p.id}>{p.full_name} ({p.patient_code || p.id.slice(0, 8)})</option>)}
-        </select>
-      </div>
-
-      <div className="card space-y-3 p-5">
-        <h2 className="font-semibold">Step 2 — Upload X-ray (PNG / JPG)</h2>
-        <label
-          className="grid cursor-pointer place-items-center gap-2 rounded-xl border-2 border-dashed border-slate-300 p-8 text-center hover:border-brand-500"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); void onFile(e.dataTransfer.files?.[0]); }}
-        >
-          <UploadCloud className="text-brand-600" size={28} />
-          <span className="text-sm text-slate-600">Drag & drop or click to browse</span>
-          <input type="file" className="hidden" accept=".png,.jpg,.jpeg" onChange={(e) => void onFile(e.target.files?.[0])} />
-        </label>
-        {preview && (
-          <div className="flex gap-4">
-            <img src={meta?.preview ?? preview} alt="X-ray preview" className="h-48 w-48 rounded-lg border object-contain bg-black" />
-            <div className="text-sm text-slate-600">
-              <div><b>File:</b> {meta?.filename ?? file?.name}</div>
-              <div><b>Dimensions:</b> {meta ? `${meta.width} × ${meta.height}` : "—"}</div>
-              <div><b>Size:</b> {meta ? `${(meta.file_size / 1024).toFixed(0)} KB` : file ? `${(file.size / 1024).toFixed(0)} KB` : "—"}</div>
-              <button className="btn-ghost mt-2 inline-flex items-center gap-1 !py-1.5 text-sm" onClick={() => { setFile(null); setMeta(null); }}><X size={14} /> Remove</button>
+    <form className="stack" onSubmit={analyze}>
+      <PageHeader
+        eyebrow="Guided workflow"
+        title="New chest X-ray analysis"
+        description="Confirm the patient, image and available model before sending the study to RESPIRA."
+      />
+      <ol className="workflow-progress" aria-label="Analysis preparation progress">
+        {[
+          { label: "Patient", icon: UserRound },
+          { label: "X-ray", icon: FileImage },
+          { label: "AI model", icon: BrainCircuit },
+          { label: "Review", icon: ClipboardCheck },
+        ].map((item, index) => {
+          const complete = workflowIndex > index;
+          const active = workflowIndex === index;
+          return (
+            <li
+              key={item.label}
+              className={complete ? "complete" : active ? "active" : ""}
+              aria-current={active ? "step" : undefined}
+            >
+              <span>{complete ? <Check size={16} /> : <item.icon size={16} />}</span>
+              <div><small>Step {index + 1}</small><strong>{item.label}</strong></div>
+            </li>
+          );
+        })}
+      </ol>
+      {error && (
+        <Alert retry={status.error ? status.reload : undefined}>{error}</Alert>
+      )}
+      <div className="upload-layout">
+        <div className="stack">
+          <section className="panel clinical-step-card">
+            <div className="step-heading">
+              <span className="step-circle">1</span>
+              <div>
+                <h2>Select patient</h2>
+                <p>Search by name or patient code.</p>
+              </div>
+              <SearchInput value={patientSearch} onChange={setPatientSearch} label="Filter patients" placeholder="Name or patient code…" />
+            </div>
+            {patients.loading ? (
+              <LoadingBlock label="Loading patients…" />
+            ) : patients.error ? (
+              <Alert retry={patients.reload}>{patients.error}</Alert>
+            ) : (
+              <>
+                <select
+                  className="input"
+                  aria-label="Select patient"
+                  required
+                  value={draft.patientId}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, patientId: e.target.value }))
+                  }
+                >
+                  <option value="">Choose a patient…</option>
+                  {filtered.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name} ({p.patient_code || p.id.slice(0, 8)})
+                    </option>
+                  ))}
+                </select>
+                <p className="field-hint">
+                  Cannot find the record?{" "}
+                  <Link to="/patients">Add a patient</Link> first.
+                </p>
+              </>
+            )}
+          </section>
+          <section className="panel clinical-step-card upload-step-card">
+            <div className="step-heading">
+              <span className="step-circle">2</span>
+              <div>
+                <h2>Upload chest X-ray</h2>
+                <p>
+                  PNG, JPG or JPEG. Final validation is performed by the
+                  backend.
+                </p>
+              </div>
+            </div>
+            <label
+              className={"drop-zone " + (dragging ? "dragging" : "")}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                void choose(e.dataTransfer.files?.[0]);
+              }}
+            >
+              <input
+                ref={input}
+                type="file"
+                accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                onChange={(e) => void choose(e.target.files?.[0])}
+              />
+              <span className="drop-content">
+                <span className="upload-icon">
+                  <UploadCloud size={28} />
+                </span>
+                <strong>
+                  {dragging
+                    ? "Drop the image here"
+                    : "Drag and drop, or choose a file"}
+                </strong>
+                <span>
+                  Keyboard users can press Enter when this area is focused.
+                </span>
+              </span>
+            </label>
+            {draft.file && (
+              <div className="file-preview">
+                {preview ? (
+                  <img src={preview} alt="Selected chest X-ray preview" />
+                ) : (
+                  <span className="upload-icon">
+                    <FileImage />
+                  </span>
+                )}
+                <div className="file-meta">
+                  <strong>{draft.file.name}</strong>
+                  <span>
+                    {uploading
+                      ? "Checking image…"
+                      : draft.meta
+                        ? draft.meta.width +
+                          " × " +
+                          draft.meta.height +
+                          " pixels"
+                        : "Dimensions unavailable"}
+                  </span>
+                  <span>
+                    {(
+                      (draft.meta?.file_size ?? draft.file.size) / 1024
+                    ).toFixed(0)}{" "}
+                    KB
+                  </span>
+                  <div className="page-actions">
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => input.current?.click()}
+                      disabled={uploading}
+                    >
+                      <RefreshCw size={16} />
+                      Replace
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={removeFile}
+                      disabled={uploading}
+                    >
+                      <X size={16} />
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+          <section className="panel clinical-step-card">
+            <div className="step-heading">
+              <span className="step-circle">3</span>
+              <div>
+                <h2>Choose an available model</h2>
+                <p>
+                  Availability and device details come directly from the
+                  backend.
+                </p>
+              </div>
+            </div>
+            {status.loading ? (
+              <LoadingBlock label="Checking model availability…" />
+            ) : status.error ? (
+              <Alert kind="warning" retry={status.reload}>
+                Model status could not be checked. Analysis remains disabled
+                until the backend reports an available model.
+              </Alert>
+            ) : (
+              <>
+                <div className="model-options">
+                  {models.map((m) => (
+                    <label
+                      key={m.key}
+                      className={
+                        "model-option " +
+                        (draft.model === m.key ? "selected " : "") +
+                        (!m.loaded ? "unavailable" : "")
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="model"
+                        value={m.key}
+                        checked={draft.model === m.key}
+                        disabled={!m.loaded}
+                        onChange={() =>
+                          setDraft((d) => ({ ...d, model: m.key }))
+                        }
+                      />
+                      <span>
+                        <strong>{m.name}</strong>
+                        <small>{m.description}</small>
+                        <em>{m.loaded ? "Available" : "Unavailable"}</em>
+                        {!m.loaded && m.error && (
+                          <details className="model-error-details">
+                            <summary>Why this model is unavailable</summary>
+                            <span>{m.error}</span>
+                          </details>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <p className="field-hint">
+                  Backend device:{" "}
+                  <strong>{status.data?.device || "not reported"}</strong>
+                  {status.data?.gpu_name ? " · " + status.data.gpu_name : ""}.
+                  This display reports backend state; it does not switch CUDA
+                  on.
+                </p>
+              </>
+            )}
+          </section>
+        </div>
+        <aside className="analysis-summary card">
+          <p className="eyebrow">Before you analyze</p>
+          <h2>Study confirmation</h2>
+          <div className="summary-steps">
+            <div
+              className={
+                selectedPatient ? "summary-step ready" : "summary-step"
+              }
+            >
+              <span>{selectedPatient ? <Check /> : "1"}</span>
+              <div>
+                <strong>Patient</strong>
+                <small>
+                  {selectedPatient
+                    ? selectedPatient.full_name +
+                      " · " +
+                      (selectedPatient.patient_code ||
+                        selectedPatient.id.slice(0, 8))
+                    : "Not selected"}
+                </small>
+              </div>
+            </div>
+            <div className={draft.meta ? "summary-step ready" : "summary-step"}>
+              <span>{draft.meta ? <Check /> : "2"}</span>
+              <div>
+                <strong>X-ray</strong>
+                <small>
+                  {draft.meta ? draft.meta.filename : "Not uploaded"}
+                </small>
+              </div>
+            </div>
+            <div
+              className={
+                selectedModel?.loaded ? "summary-step ready" : "summary-step"
+              }
+            >
+              <span>{selectedModel?.loaded ? <Check /> : "3"}</span>
+              <div>
+                <strong>Model</strong>
+                <small>
+                  {selectedModel?.loaded
+                    ? selectedModel.name
+                    : "No available model selected"}
+                </small>
+              </div>
             </div>
           </div>
-        )}
+          <button
+            className="btn-primary full-width"
+            type="submit"
+            disabled={!canAnalyze}
+          >
+            {busy ? (
+              <>
+                <span className="spin" />
+                Analyzing X-ray…
+              </>
+            ) : (
+              "Analyze with RESPIRA"
+            )}
+          </button>
+          {busy && (
+            <div className="analysis-processing" role="status">
+              <div className="processing-orbit"><BrainCircuit size={24} /></div>
+              <strong>RESPIRA is reviewing the study</strong>
+              <p>
+                The backend is processing the image. These are workflow labels,
+                not live percentages because the API does not report stages.
+              </p>
+              <div className="processing-stages" aria-hidden="true">
+                <span><CheckCircle2 size={14} /> Request submitted</span>
+                <span className="active"><span className="spin" /> Inference in progress</span>
+                <span>Preparing results</span>
+              </div>
+            </div>
+          )}
+          <Disclaimer />
+        </aside>
       </div>
-
-      <div className="card space-y-3 p-5">
-        <h2 className="font-semibold">Step 3 — Choose AI model & start analysis</h2>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium text-slate-700">Prediction model</span>
-          <select className="input" value={modelKey} onChange={(e) => setModelKey(e.target.value)} aria-label="Select AI model">
-            {models.map((m) => (
-              <option key={m.key} value={m.key} disabled={!m.loaded}>
-                {m.name}{m.loaded ? "" : " (unavailable)"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="text-xs text-slate-500">{models.find((m) => m.key === modelKey)?.description}</p>
-        {!busy ? (
-          <button className="btn-primary" onClick={() => void analyze()} disabled={!file || !patientId}>Analyze with Respira AI</button>
-        ) : (
-          <div className="space-y-2" role="status" aria-live="polite">
-            <div className="font-medium">Analyzing X-ray…</div>
-            <ul className="space-y-1 text-sm text-slate-600">
-              {STAGES.map((s, i) => (
-                <li key={s} className={i <= stage ? "text-brand-700 font-medium" : ""}>{i < stage ? "✓" : i === stage ? "…" : "○"} {s}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        <Disclaimer />
-      </div>
-    </div>
+    </form>
   );
 }
