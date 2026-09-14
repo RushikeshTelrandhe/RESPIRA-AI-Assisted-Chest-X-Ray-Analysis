@@ -1,5 +1,6 @@
 import { MessageSquareText, Mail } from "lucide-react";
 import { useState } from "react";
+import ThemeToggle from "../theme/ThemeToggle";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -176,6 +177,7 @@ export function Shell() {
 
       <div className="app-body">
         <header className="app-topbar">
+          <ThemeToggle />
           <button
             className="mobile-toggle icon-button"
             type="button"

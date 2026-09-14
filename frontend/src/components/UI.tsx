@@ -188,11 +188,11 @@ export function Tabs<T extends string>({
                 : e.key === "End"
                   ? enabled[enabled.length - 1]
                   : enabled[
-                      (current +
-                        (e.key === "ArrowRight" ? 1 : -1) +
-                        enabled.length) %
-                        enabled.length
-                    ];
+                  (current +
+                    (e.key === "ArrowRight" ? 1 : -1) +
+                    enabled.length) %
+                  enabled.length
+                  ];
             if (next) {
               onChange(next.value);
               document.getElementById(id + "-" + next.value)?.focus();

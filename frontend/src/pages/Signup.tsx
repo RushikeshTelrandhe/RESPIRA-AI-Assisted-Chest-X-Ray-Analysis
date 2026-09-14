@@ -83,6 +83,9 @@ export function Signup() {
   );
   return (
     <AuthLayout>
+      <Link to="/" className="auth-back-link" aria-label="Back to home">
+        ← Back
+      </Link>
       <div className="auth-title">
         <p className="eyebrow">Join the workspace</p>
         <h1>Create your account.</h1>
