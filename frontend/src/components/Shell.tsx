@@ -1,86 +1,303 @@
-import { NavLink, useNavigate } from "react-router-dom";
-import { Activity, Users, ScanLine, History, FileText, User, Settings, LifeBuoy, LogOut, Stethoscope, Menu, X } from "lucide-react";
+import { MessageSquareText, Mail } from "lucide-react";
 import { useState } from "react";
+import ThemeToggle from "../theme/ThemeToggle";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import {
+  Activity,
+  CircleHelp,
+  Cpu,
+  EyeOff,
+  FileText,
+  History,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ScanLine,
+  Settings,
+  Sparkles,
+  Stethoscope,
+  UserRound,
+  Users,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { useResource, useWorkspace } from "../context/WorkspaceContext";
+import { api, type ModelStatus } from "../services/api";
+import { Brand } from "./Brand";
+import { Modal } from "./UI";
+import { initials } from "../utils/display";
 
-const LINKS = [
+const primaryLinks = [
   { to: "/dashboard", label: "Overview", icon: Activity },
+  { to: "/xray-test", label: "New analysis", icon: ScanLine },
   { to: "/patients", label: "Patients", icon: Users },
-  { to: "/xray-test", label: "X-Ray Test", icon: ScanLine },
-  { to: "/history", label: "Test History", icon: History },
+  { to: "/history", label: "Analysis history", icon: History },
   { to: "/reports", label: "Reports", icon: FileText },
-  { to: "/profile", label: "Profile", icon: User },
+  { to: "/feedback", label: "Doctor feedback", icon: MessageSquareText },
 ];
+const utilityLinks = [
+  { to: "/models", label: "Model status", icon: Cpu },
+  { to: "/profile", label: "Profile", icon: UserRound },
+  { to: "/settings", label: "Preferences", icon: Settings },
+  { to: "/help", label: "Help centre", icon: CircleHelp },
+];
+const titles: Record<string, { eyebrow: string; title: string }> = {
+  "/dashboard": { eyebrow: "Clinical workspace", title: "Overview" },
+  "/patients": { eyebrow: "Patient management", title: "Patients" },
+  "/xray-test": { eyebrow: "Acquisition workflow", title: "New analysis" },
+  "/history": { eyebrow: "Study archive", title: "Analysis history" },
+  "/reports": { eyebrow: "Documentation", title: "Reports" },
+  "/feedback": { eyebrow: "Clinical review", title: "Doctor feedback" },
+  "/profile": { eyebrow: "Account", title: "Doctor profile" },
+  "/models": { eyebrow: "Inference system", title: "Model status" },
+  "/settings": { eyebrow: "Workspace", title: "Preferences" },
+  "/help": { eyebrow: "Guidance", title: "Help centre" },
+};
 
-export function Shell({ children }: { children: React.ReactNode }) {
-  const { doctor, logout } = useAuth();
+function savedCollapsed() {
+  try {
+    return localStorage.getItem("respira_sidebar_collapsed") === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function Shell() {
+  const { doctor, token, logout } = useAuth();
+  const {
+    guard,
+    draft,
+    viewMode,
+    setViewMode,
+    presentationMode,
+    setPresentationMode,
+  } = useWorkspace();
+  const status = useResource<ModelStatus>("model-status", () =>
+    api.get("/api/v1/models/status", token),
+  );
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
+  const location = useLocation();
+  const [mobile, setMobile] = useState(false);
+  const [collapsed, setCollapsed] = useState(savedCollapsed);
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  const nav = (
-    <nav className="flex flex-col gap-1 p-4">
-      {LINKS.map((l) => (
+  const page = location.pathname.startsWith("/analysis/")
+    ? { eyebrow: "AI study", title: "Study review" }
+    : location.pathname.startsWith("/patients/")
+      ? { eyebrow: "Patient management", title: "Patient record" }
+      : (titles[location.pathname] ?? {
+          eyebrow: "RESPIRA workspace",
+          title: "Clinical intelligence",
+        });
+  const readyCount = status.data?.models.filter((model) => model.loaded).length ?? 0;
+  const backendReady = readyCount > 0;
+  const device = status.data?.device || "Checking";
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem("respira_sidebar_collapsed", String(next));
+      } catch {
+        // The layout still works if preferences cannot be stored.
+      }
+      return next;
+    });
+  }
+
+  const navList = (items: typeof primaryLinks) => (
+    <>
+      {items.map((item) => (
         <NavLink
-          key={l.to}
-          to={l.to}
-          onClick={() => setOpen(false)}
-          className={({ isActive }) =>
-            `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-              isActive ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"
-            }`
-          }
+          key={item.to}
+          to={item.to}
+          title={collapsed ? item.label : undefined}
+          onClick={() => setMobile(false)}
+          className={({ isActive }) => `side-link${isActive ? " active" : ""}`}
         >
-          <l.icon size={18} /> {l.label}
+          <item.icon size={18} aria-hidden="true" />
+          <span>{item.label}</span>
         </NavLink>
       ))}
-      <div className="mt-6 border-t border-slate-200 pt-4 flex flex-col gap-1">
-        <NavLink to="/settings" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100">
-          <Settings size={18} /> Settings
-        </NavLink>
-        <NavLink to="/help" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100">
-          <LifeBuoy size={18} /> Help
-        </NavLink>
-        <button
-          onClick={() => { void logout().then(() => navigate("/login")); }}
-          className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 text-left"
-        >
-          <LogOut size={18} /> Logout
-        </button>
-      </div>
-    </nav>
+    </>
   );
 
+  async function finishLogout() {
+    setLoggingOut(true);
+    await logout();
+    navigate("/login", { replace: true });
+  }
+
+  function requestLogout() {
+    if (guard.active || draft.file) setConfirmLogout(true);
+    else void finishLogout();
+  }
+
   return (
-    <div className="min-h-screen lg:flex">
-      <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
-        <div className="flex items-center gap-2 px-5 pt-5 pb-2">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-600 text-white"><Stethoscope size={20} /></span>
-          <div>
-            <div className="font-bold tracking-wide">RESPIRA</div>
-            <div className="text-[11px] text-slate-500">Chest X-Ray AI</div>
+    <div className={`app-shell${collapsed ? " sidebar-collapsed" : ""}`}>
+      <aside className="app-sidebar">
+        <div className="sidebar-brand-row">
+          <Brand light compact={collapsed} to="/dashboard" />
+          <button
+            className="sidebar-collapse"
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
+        </div>
+
+        <div className="sidebar-workspace-chip">
+          <span><Stethoscope size={16} /></span>
+          <div><strong>Clinical review</strong><small>Research workspace</small></div>
+        </div>
+
+        <p className="sidebar-label">Workspace</p>
+        <nav className="side-links" aria-label="Workspace navigation">
+          {navList(primaryLinks)}
+        </nav>
+
+        <div className="sidebar-bottom">
+          <p className="sidebar-label">System & support</p>
+          <nav className="side-links" aria-label="System and support">
+            {navList(utilityLinks)}
+          </nav>
+          <button className="side-link" type="button" onClick={requestLogout}>
+            <LogOut size={18} />
+            <span>Log out</span>
+          </button>
+          <div className="sidebar-safety-note">
+            <ShieldMini />
+            <span>AI output requires qualified clinical review.</span>
           </div>
         </div>
-        {nav}
       </aside>
 
-      <div className="flex-1 min-w-0">
-        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur">
-          <button className="lg:hidden btn-ghost !px-2 !py-2" onClick={() => setOpen(!open)} aria-label="Menu">
-            {open ? <X size={18} /> : <Menu size={18} />}
+      <div className="app-body">
+        <header className="app-topbar">
+          <ThemeToggle />
+          <button
+            className="mobile-toggle icon-button"
+            type="button"
+            onClick={() => setMobile(true)}
+            aria-label="Open navigation"
+          >
+            <Menu size={20} />
           </button>
-          <div className="ml-auto flex items-center gap-3">
-            <div className="text-right hidden sm:block">
-              <div className="text-sm font-semibold">{doctor?.full_name}</div>
-              <div className="text-xs text-slate-500">{doctor?.specialization || "Doctor"}</div>
+          <div className="topbar-title">
+            <span>{page.eyebrow}</span>
+            <strong>{page.title}</strong>
+          </div>
+          <div className="topbar-right">
+            <NavLink
+              to="/models"
+              className={`system-pill${backendReady ? " ready" : ""}`}
+              title="Open model status"
+            >
+              <i />
+              <span>{status.loading ? "Checking models" : backendReady ? `${readyCount} models ready` : "Models unavailable"}</span>
+              <small>{device}</small>
+            </NavLink>
+
+            <div className="view-switch" aria-label="Interface detail level">
+              <button
+                type="button"
+                className={viewMode === "guided" ? "active" : ""}
+                onClick={() => setViewMode("guided")}
+              >Guided</button>
+              <button
+                type="button"
+                className={viewMode === "clinical" ? "active" : ""}
+                onClick={() => setViewMode("clinical")}
+              >Clinical</button>
             </div>
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-brand-100 font-bold text-brand-700">
-              {(doctor?.full_name ?? "D").charAt(0)}
-            </span>
+
+            <button
+              className={`presentation-toggle${presentationMode ? " active" : ""}`}
+              type="button"
+              aria-pressed={presentationMode}
+              title="Mask patient identifiers during a presentation"
+              onClick={() => setPresentationMode(!presentationMode)}
+            >
+              <EyeOff size={16} />
+              <span>{presentationMode ? "Privacy on" : "Present"}</span>
+            </button>
+
+            <NavLink className="topbar-new-study" to="/xray-test">
+              <Sparkles size={16} /> New study
+            </NavLink>
+
+            <NavLink className="user-link" to="/profile">
+              <span className="avatar">{initials(doctor?.full_name)}</span>
+              <span className="user-name">
+                <b>{doctor?.full_name}</b>
+                <small>{doctor?.specialization || "Doctor account"}</small>
+              </span>
+            </NavLink>
           </div>
         </header>
-        {open && <div className="lg:hidden border-b border-slate-200 bg-white">{nav}</div>}
-        <main className="mx-auto max-w-6xl p-4 sm:p-6">{children}</main>
+
+        {presentationMode && (
+          <div className="presentation-banner" role="status">
+            <EyeOff size={15} /> Presentation mode is masking patient identifiers.
+            <button type="button" onClick={() => setPresentationMode(false)}>Turn off</button>
+          </div>
+        )}
+
+        <main className="main-content" id="main-content">
+          <div className="route-page"><Outlet /></div>
+        </main>
+        <footer className="workspace-footer">
+          <span>RESPIRA · Research prototype</span>
+          <a href="mailto:respirahelp@gmail.com" className="text-button"><Mail size={14} /> Contact developers</a>
+        </footer>
       </div>
+
+      <Modal
+        open={mobile}
+        title="RESPIRA navigation"
+        onDismiss={() => setMobile(false)}
+        className="mobile-drawer"
+      >
+        <nav className="side-links">
+          {navList(primaryLinks)}
+          <hr />
+          {navList(utilityLinks)}
+        </nav>
+      </Modal>
+
+      <Modal
+        open={confirmLogout}
+        title="Log out and discard this draft?"
+        onDismiss={() => setConfirmLogout(false)}
+      >
+        <div className="modal-body">
+          <p>Your unsaved form or selected X-ray will be cleared when you log out.</p>
+          <div className="form-actions">
+            <button className="btn-ghost" onClick={() => setConfirmLogout(false)}>
+              Stay signed in
+            </button>
+            <button
+              className="btn-primary"
+              disabled={loggingOut}
+              onClick={() => void finishLogout()}
+            >
+              {loggingOut ? "Logging out…" : "Log out"}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
+  );
+}
+
+function ShieldMini() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3 20 6v5c0 5-3.2 8.2-8 10-4.8-1.8-8-5-8-10V6l8-3Z" stroke="currentColor" strokeWidth="1.7" />
+      <path d="m8.7 12 2.1 2.1 4.7-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
