@@ -2,9 +2,11 @@
 # RESPIRA - Git Ignore
 # =========================================================
 
-# ---------------------------------------------------------
-# Python
-# ---------------------------------------------------------
+
+# =========================================================
+# PYTHON
+# =========================================================
+
 __pycache__/
 *.py[cod]
 *$py.class
@@ -18,176 +20,233 @@ ENV/
 env.bak/
 venv.bak/
 
-# Jupyter
-.ipynb_checkpoints/
-
-# ---------------------------------------------------------
-# Environment / secrets
-# ---------------------------------------------------------
-.env
-.env.*
-!.env.example
-
-# ---------------------------------------------------------
-# IDE
-# ---------------------------------------------------------
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# ---------------------------------------------------------
-# Node / React
-# ---------------------------------------------------------
-node_modules/
-frontend/node_modules/
-electron/node_modules/
-
-npm-debug.log*
-yarn-debug.log*
-pnpm-debug.log*
-
-# Build outputs
-dist/
-build/
-frontend/dist/
-frontend/build/
-
-# Electron build artifacts
-electron/dist/
-electron/out/
-release/
-
-# ---------------------------------------------------------
-# Logs
-# ---------------------------------------------------------
-*.log
-logs/
-
-# ---------------------------------------------------------
-# Databases / local application data
-# ---------------------------------------------------------
-*.db
-*.sqlite
-*.sqlite3
-
-# ---------------------------------------------------------
-# Original datasets
-# ---------------------------------------------------------
-Lung_Disease_Dataset/
-data/raw/
-data/original/
-data/dataset/
-
-# ---------------------------------------------------------
-# Processed/generated datasets
-# ---------------------------------------------------------
-data/processed/
-data/processed_data/
-data/preprocessed/
-
-# ---------------------------------------------------------
-# Model checkpoints
-# ---------------------------------------------------------
-*.pth
-*.pt
-*.ckpt
-*.onnx
-*.safetensors
-*.bin
-
-# ---------------------------------------------------------
-# Generated model outputs
-# ---------------------------------------------------------
-outputs/
-
-# Allow documentation inside outputs
-!outputs/README.md
-
-# ---------------------------------------------------------
-# Generated explainability images
-# ---------------------------------------------------------
-gradcam_outputs/
-attention_outputs/
-heatmaps/
-overlays/
-
-# ---------------------------------------------------------
-# Temporary files
-# ---------------------------------------------------------
-*.tmp
-*.temp
-*.cache
-
-# ---------------------------------------------------------
-# OS files
-# ---------------------------------------------------------
-Thumbs.db
-Desktop.ini
-.DS_Store
-
-# ---------------------------------------------------------
-# Large archives
-# ---------------------------------------------------------
-*.zip
-*.7z
-*.rar
-*.tar
-*.tar.gz
-
-# ---------------------------------------------------------
 # Python tooling
-# ---------------------------------------------------------
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
 
-# ---------------------------------------------------------
-# Temporary notebooks / exports
-# ---------------------------------------------------------
-
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
 
 
 # =========================================================
-# RESPIRA RUNTIME / APPLICATION STORAGE
+# ENVIRONMENT / SECRETS
 # =========================================================
 
-# Backend runtime storage
-backend_storage/
+.env
+.env.*
+!.env.example
 
-# Application logs
+# API keys / secrets
+*.pem
+*.key
+*.secret
+
+
+# =========================================================
+# IDE / EDITOR
+# =========================================================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+
+# =========================================================
+# NODE / REACT / FRONTEND
+# =========================================================
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+electron/node_modules/
+
+# Build outputs
+dist/
+build/
+frontend/dist/
+frontend/build/
+electron/dist/
+electron/out/
+release/
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# TypeScript build artifacts
+*.tsbuildinfo
+
+
+# =========================================================
+# LOGS
+# =========================================================
+
+*.log
 logs/
+
+
+# =========================================================
+# DATABASES / LOCAL APPLICATION DATA
+# =========================================================
+
+*.db
+*.sqlite
+*.sqlite3
 
 # Test databases
 **/test_*.db
 
-# Runtime uploads
+# Runtime storage
+backend_storage/
 uploads/
 storage/
 
-# Generated reports
+# Generated application data
+analyses/
 reports/
 
-# Generated medical images
-analyses/
 
 # =========================================================
-# RESPIRA RUNTIME APPLICATION DATA
+# ORIGINAL DATASETS
 # =========================================================
 
-backend_storage/
-logs/
-
-
-# =========================================================
-# DATASET IMAGES
-# =========================================================
-
+Lung_Disease_Dataset/
+data/raw/
+data/original/
+data/dataset/
 data/acquired/
-# TYPESCRIPT BUILD ARTIFACTS
-*.tsbuildinfo
 
-# Respira 512x512 preprocessed dataset
+
+# =========================================================
+# PROCESSED / GENERATED DATASETS
+# =========================================================
+
+data/processed/
+data/processed_data/
+data/preprocessed/
+
+# Final 512x512 dataset
+# IMPORTANT:
+# This stays local and is NOT pushed to GitHub.
 data/Lung_Disease_Preprocessed_512/
+
+
+# =========================================================
+# MODEL CHECKPOINTS
+# =========================================================
+
+# PyTorch
+*.pth
+*.pt
+*.ckpt
+
+# ONNX / TensorRT
+*.onnx
+*.engine
+
+# Hugging Face / Transformers
+*.safetensors
+*.bin
+
+# Other model formats
+*.h5
+*.hdf5
+*.pb
+
+
+# =========================================================
+# GENERATED MODEL OUTPUTS
+# =========================================================
+
+outputs/
+
+# Allow documentation inside outputs
+!outputs/README.md
+
+
+# =========================================================
+# HUGGING FACE LOCAL CACHE
+# =========================================================
+
+# Temporary files created by the model downloader
+.hf_cache/
+
+# Hugging Face cache if created inside the project
+huggingface_cache/
+hf_cache/
+
+
+# =========================================================
+# EXPLAINABILITY / GENERATED VISUALIZATIONS
+# =========================================================
+
+gradcam_outputs/
+attention_outputs/
+heatmaps/
+overlays/
+
+# XAI generated artifacts
+xai_outputs/
+xai_visualizations/
+
+
+# =========================================================
+# TEMPORARY FILES
+# =========================================================
+
+*.tmp
+*.temp
+*.cache
+
+*.bak
+*.backup
+
+
+# =========================================================
+# ARCHIVES
+# =========================================================
+
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+
+
+# =========================================================
+# FRONTEND LOCAL / ENVIRONMENT FILES
+# =========================================================
+
+# Keep environment templates, ignore actual secrets
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Allow example configuration
+!frontend/.env.example
+
+
+# =========================================================
+# BACKEND LOCAL / ENVIRONMENT FILES
+# =========================================================
+
+backend/.env
+backend/.env.local
+backend/.env.production
+backend/.env.development
+
+# Allow example configuration
+!backend/.env.example
