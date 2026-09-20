@@ -1,5 +1,5 @@
 # ============================================================
-# RESPIRA - ViT-B/16 512x512 TEST EVALUATION
+# RESPIRA - EfficientNet + ViT FINAL TEST FUSION
 # ============================================================
 
 from pathlib import Path
@@ -25,6 +25,7 @@ from sklearn.metrics import (
     auc,
 )
 
+from src.models.efficientnet import create_efficientnet_b0
 from src.models.vit import VisionTransformerModel
 
 
@@ -42,26 +43,40 @@ DATA_DIR = (
 
 TEST_DIR = DATA_DIR / "test"
 
-EXPERIMENT_DIR = (
+OUTPUT_DIR = (
     PROJECT_ROOT
     / "outputs"
-    / "vit_512"
-)
-
-CHECKPOINT = (
-    EXPERIMENT_DIR
-    / "checkpoints"
-    / "best_model.pth"
-)
-
-OUTPUT_DIR = (
-    EXPERIMENT_DIR
-    / "evaluation"
+    / "fusion"
+    / "test"
 )
 
 OUTPUT_DIR.mkdir(
     parents=True,
     exist_ok=True
+)
+
+
+EFFICIENTNET_CHECKPOINT = (
+    PROJECT_ROOT
+    / "outputs"
+    / "efficientnet_b0_512"
+    / "checkpoints"
+    / "best_model.pth"
+)
+
+VIT_CHECKPOINT = (
+    PROJECT_ROOT
+    / "outputs"
+    / "vit_512"
+    / "checkpoints"
+    / "best_model.pth"
+)
+
+FUSION_CONFIG = (
+    PROJECT_ROOT
+    / "outputs"
+    / "fusion"
+    / "fusion_config.json"
 )
 
 
@@ -95,44 +110,103 @@ DEVICE = torch.device(
 )
 
 print("=" * 70)
-print("RESPIRA - ViT-B/16 512x512 TEST EVALUATION")
+print("RESPIRA - FINAL EfficientNet + ViT TEST FUSION")
 print("=" * 70)
 
-print(f"Device     : {DEVICE}")
+print(f"Device : {DEVICE}")
 
 if torch.cuda.is_available():
+
     print(
-        f"GPU        : "
+        f"GPU    : "
         f"{torch.cuda.get_device_name(0)}"
     )
 
-print(f"Test data  : {TEST_DIR}")
-print(f"Checkpoint : {CHECKPOINT}")
-print(f"Output     : {OUTPUT_DIR}")
+print(
+    f"Test data : {TEST_DIR}"
+)
+
+print(
+    f"Output    : {OUTPUT_DIR}"
+)
 
 print("=" * 70)
 
 
 # ============================================================
-# 4. VERIFY PATHS
+# 4. VERIFY FILES
 # ============================================================
 
-if not TEST_DIR.exists():
-    raise FileNotFoundError(
-        f"Test directory not found:\n{TEST_DIR}"
-    )
+required_paths = [
+    TEST_DIR,
+    EFFICIENTNET_CHECKPOINT,
+    VIT_CHECKPOINT,
+    FUSION_CONFIG,
+]
 
-if not CHECKPOINT.exists():
-    raise FileNotFoundError(
-        f"Checkpoint not found:\n{CHECKPOINT}"
+for path in required_paths:
+
+    if not path.exists():
+
+        raise FileNotFoundError(
+            f"Required path not found:\n{path}"
+        )
+
+
+# ============================================================
+# 5. LOAD FROZEN FUSION CONFIG
+# ============================================================
+
+with open(
+    FUSION_CONFIG,
+    "r",
+    encoding="utf-8"
+) as f:
+
+    fusion_config = json.load(f)
+
+
+EFFNET_WEIGHT = float(
+    fusion_config[
+        "efficientnet_weight"
+    ]
+)
+
+VIT_WEIGHT = float(
+    fusion_config[
+        "vit_weight"
+    ]
+)
+
+
+print("\nFrozen fusion configuration:")
+
+print(
+    f"EfficientNet weight : "
+    f"{EFFNET_WEIGHT:.2f}"
+)
+
+print(
+    f"ViT weight          : "
+    f"{VIT_WEIGHT:.2f}"
+)
+
+if not np.isclose(
+    EFFNET_WEIGHT + VIT_WEIGHT,
+    1.0
+):
+
+    raise ValueError(
+        "Fusion weights must sum to 1."
     )
 
 
 # ============================================================
-# 5. TEST TRANSFORM
+# 6. TEST TRANSFORM
 # ============================================================
 
 test_transform = transforms.Compose([
+
     transforms.Resize(
         (IMAGE_SIZE, IMAGE_SIZE)
     ),
@@ -147,7 +221,7 @@ test_transform = transforms.Compose([
 
 
 # ============================================================
-# 6. LOAD TEST DATASET
+# 7. LOAD TEST DATASET
 # ============================================================
 
 test_dataset = datasets.ImageFolder(
@@ -156,28 +230,28 @@ test_dataset = datasets.ImageFolder(
 )
 
 print("\nTest dataset:")
-print(f"Images: {len(test_dataset)}")
+print(
+    f"Images: {len(test_dataset)}"
+)
 
-print("\nClasses:")
-print(test_dataset.classes)
+print(
+    f"Classes: {test_dataset.classes}"
+)
 
-
-# ============================================================
-# 7. VERIFY CLASS ORDER
-# ============================================================
 
 if test_dataset.classes != CLASS_NAMES:
+
     raise ValueError(
         "\nClass order mismatch!\n"
         f"Expected: {CLASS_NAMES}\n"
-        f"Found:    {test_dataset.classes}"
+        f"Found: {test_dataset.classes}"
     )
 
-print("\n✓ Class order verified")
+print("✓ Class order verified")
 
 
 # ============================================================
-# 8. DATALOADER
+# 8. TEST DATALOADER
 # ============================================================
 
 test_loader = DataLoader(
@@ -190,69 +264,102 @@ test_loader = DataLoader(
 
 
 # ============================================================
-# 9. LOAD CHECKPOINT
+# 9. LOAD EFFICIENTNET
 # ============================================================
 
-print("\nLoading checkpoint...")
+print("\nLoading EfficientNet-B0...")
 
-checkpoint = torch.load(
-    CHECKPOINT,
+effnet_checkpoint = torch.load(
+    EFFICIENTNET_CHECKPOINT,
     map_location=DEVICE,
     weights_only=False
 )
 
+efficientnet = create_efficientnet_b0(
+    num_classes=NUM_CLASSES,
+    pretrained=False,
+    dropout=0.3,
+)
+
+efficientnet.load_state_dict(
+    effnet_checkpoint[
+        "model_state_dict"
+    ]
+)
+
+efficientnet = efficientnet.to(DEVICE)
+
+efficientnet.eval()
+
 print(
-    f"Checkpoint epoch          : "
-    f"{checkpoint.get('epoch', 'N/A')}"
+    f"✓ EfficientNet epoch: "
+    f"{effnet_checkpoint.get('epoch', 'N/A')}"
 )
 
 print(
-    f"Checkpoint validation acc : "
-    f"{checkpoint.get('val_accuracy', 0) * 100:.2f}%"
-)
-
-print(
-    f"Checkpoint validation loss: "
-    f"{checkpoint.get('val_loss', 0):.4f}"
+    f"✓ EfficientNet validation accuracy: "
+    f"{effnet_checkpoint.get('val_accuracy', 0) * 100:.2f}%"
 )
 
 
 # ============================================================
-# 10. CREATE ViT MODEL
+# 10. LOAD ViT
 # ============================================================
 
-print("\nCreating ViT-B/16...")
+print("\nLoading ViT-B/16...")
 
-model = VisionTransformerModel(
+vit_checkpoint = torch.load(
+    VIT_CHECKPOINT,
+    map_location=DEVICE,
+    weights_only=False
+)
+
+vit = VisionTransformerModel(
     num_classes=NUM_CLASSES,
     pretrained=False,
 )
 
-model.load_state_dict(
-    checkpoint["model_state_dict"]
+vit.load_state_dict(
+    vit_checkpoint[
+        "model_state_dict"
+    ]
 )
 
-model = model.to(DEVICE)
+vit = vit.to(DEVICE)
 
-model.eval()
+vit.eval()
 
-print("✓ ViT-B/16 model loaded")
-print("✓ Model set to evaluation mode")
+print(
+    f"✓ ViT epoch: "
+    f"{vit_checkpoint.get('epoch', 'N/A')}"
+)
+
+print(
+    f"✓ ViT validation accuracy: "
+    f"{vit_checkpoint.get('val_accuracy', 0) * 100:.2f}%"
+)
 
 
 # ============================================================
-# 11. INFERENCE
+# 11. FINAL TEST INFERENCE
 # ============================================================
+
+print("\nRunning final fusion inference...")
 
 all_labels = []
-all_predictions = []
-all_probabilities = []
 
-print("\nRunning inference on test set...")
+all_effnet_probs = []
+all_vit_probs = []
+all_fusion_probs = []
+
+batch_count = len(test_loader)
 
 with torch.no_grad():
 
-    for batch_index, (images, labels) in enumerate(
+    for batch_index, (
+        images,
+        labels
+    ) in enumerate(
         test_loader,
         start=1
     ):
@@ -262,76 +369,171 @@ with torch.no_grad():
             non_blocking=True
         )
 
-        outputs = model(images)
+        # ----------------------------------------------------
+        # EfficientNet
+        # ----------------------------------------------------
 
-        # The Respira ViT can return either:
-        #   tensor
-        # or
-        #   dictionary containing "logits"
-        if isinstance(outputs, dict):
-            logits = outputs["logits"]
+        effnet_output = efficientnet(
+            images
+        )
+
+        if isinstance(
+            effnet_output,
+            dict
+        ):
+
+            effnet_logits = (
+                effnet_output["logits"]
+            )
+
         else:
-            logits = outputs
 
-        probabilities = F.softmax(
-            logits,
+            effnet_logits = (
+                effnet_output
+            )
+
+        effnet_probs = F.softmax(
+            effnet_logits,
             dim=1
         )
 
-        predictions = torch.argmax(
-            probabilities,
+
+        # ----------------------------------------------------
+        # ViT
+        # ----------------------------------------------------
+
+        vit_output = vit(
+            images
+        )
+
+        if isinstance(
+            vit_output,
+            dict
+        ):
+
+            vit_logits = (
+                vit_output["logits"]
+            )
+
+        else:
+
+            vit_logits = vit_output
+
+        vit_probs = F.softmax(
+            vit_logits,
             dim=1
         )
+
+
+        # ----------------------------------------------------
+        # Weighted probability fusion
+        # ----------------------------------------------------
+
+        fusion_probs = (
+            EFFNET_WEIGHT * effnet_probs
+            +
+            VIT_WEIGHT * vit_probs
+        )
+
+
+        # ----------------------------------------------------
+        # Store
+        # ----------------------------------------------------
 
         all_labels.extend(
             labels.cpu().numpy()
         )
 
-        all_predictions.extend(
-            predictions.cpu().numpy()
+        all_effnet_probs.extend(
+            effnet_probs.cpu().numpy()
         )
 
-        all_probabilities.extend(
-            probabilities.cpu().numpy()
+        all_vit_probs.extend(
+            vit_probs.cpu().numpy()
         )
+
+        all_fusion_probs.extend(
+            fusion_probs.cpu().numpy()
+        )
+
 
         if batch_index % 25 == 0:
+
+            processed = min(
+                batch_index * BATCH_SIZE,
+                len(test_dataset)
+            )
+
             print(
                 f"  Processed "
-                f"{min(batch_index * BATCH_SIZE, len(test_dataset))}"
-                f"/{len(test_dataset)} images"
+                f"{processed}/"
+                f"{len(test_dataset)}"
             )
 
 
 # ============================================================
-# 12. NUMPY CONVERSION
+# 12. NUMPY ARRAYS
 # ============================================================
 
 y_true = np.array(
     all_labels
 )
 
-y_pred = np.array(
-    all_predictions
+effnet_probs = np.array(
+    all_effnet_probs
 )
 
-y_prob = np.array(
-    all_probabilities
+vit_probs = np.array(
+    all_vit_probs
+)
+
+fusion_probs = np.array(
+    all_fusion_probs
 )
 
 
 # ============================================================
-# 13. BASIC ACCURACY
+# 13. PREDICTIONS
 # ============================================================
 
-test_accuracy = accuracy_score(
+effnet_predictions = np.argmax(
+    effnet_probs,
+    axis=1
+)
+
+vit_predictions = np.argmax(
+    vit_probs,
+    axis=1
+)
+
+fusion_predictions = np.argmax(
+    fusion_probs,
+    axis=1
+)
+
+
+# ============================================================
+# 14. ACCURACIES
+# ============================================================
+
+effnet_accuracy = accuracy_score(
     y_true,
-    y_pred
+    effnet_predictions
+)
+
+vit_accuracy = accuracy_score(
+    y_true,
+    vit_predictions
+)
+
+fusion_accuracy = accuracy_score(
+    y_true,
+    fusion_predictions
 )
 
 
 # ============================================================
-# 14. PRECISION / RECALL / F1
+# 15. FUSION METRICS
 # ============================================================
 
 (
@@ -341,7 +543,7 @@ test_accuracy = accuracy_score(
     _
 ) = precision_recall_fscore_support(
     y_true,
-    y_pred,
+    fusion_predictions,
     average="macro",
     zero_division=0
 )
@@ -353,19 +555,19 @@ test_accuracy = accuracy_score(
     _
 ) = precision_recall_fscore_support(
     y_true,
-    y_pred,
+    fusion_predictions,
     average="weighted",
     zero_division=0
 )
 
 
 # ============================================================
-# 15. CLASSIFICATION REPORT
+# 16. CLASSIFICATION REPORT
 # ============================================================
 
 report_dict = classification_report(
     y_true,
-    y_pred,
+    fusion_predictions,
     target_names=CLASS_NAMES,
     output_dict=True,
     zero_division=0
@@ -376,17 +578,18 @@ report_df = pd.DataFrame(
 ).transpose()
 
 report_df.to_csv(
-    OUTPUT_DIR / "classification_report.csv"
+    OUTPUT_DIR
+    / "classification_report.csv"
 )
 
 
 # ============================================================
-# 16. CONFUSION MATRIX
+# 17. CONFUSION MATRIX
 # ============================================================
 
 cm = confusion_matrix(
     y_true,
-    y_pred,
+    fusion_predictions,
     labels=np.arange(NUM_CLASSES)
 )
 
@@ -397,12 +600,13 @@ cm_df = pd.DataFrame(
 )
 
 cm_df.to_csv(
-    OUTPUT_DIR / "confusion_matrix.csv"
+    OUTPUT_DIR
+    / "confusion_matrix.csv"
 )
 
 
 # ============================================================
-# 17. CONFUSION MATRIX PLOT
+# 18. CONFUSION MATRIX PLOT
 # ============================================================
 
 plt.figure(
@@ -412,7 +616,7 @@ plt.figure(
 plt.imshow(cm)
 
 plt.title(
-    "ViT-B/16 512x512 - Confusion Matrix"
+    "EfficientNet + ViT 512x512 - Fusion Confusion Matrix"
 )
 
 plt.colorbar()
@@ -452,7 +656,8 @@ for i in range(NUM_CLASSES):
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "confusion_matrix.png",
+    OUTPUT_DIR
+    / "confusion_matrix.png",
     dpi=200,
     bbox_inches="tight"
 )
@@ -461,7 +666,7 @@ plt.close()
 
 
 # ============================================================
-# 18. ROC-AUC
+# 19. ROC-AUC
 # ============================================================
 
 y_true_one_hot = np.eye(
@@ -473,13 +678,15 @@ roc_auc_per_class = {}
 fpr_dict = {}
 tpr_dict = {}
 
-for i, class_name in enumerate(CLASS_NAMES):
+for i, class_name in enumerate(
+    CLASS_NAMES
+):
 
     try:
 
         fpr, tpr, _ = roc_curve(
             y_true_one_hot[:, i],
-            y_prob[:, i]
+            fusion_probs[:, i]
         )
 
         class_auc = auc(
@@ -487,23 +694,30 @@ for i, class_name in enumerate(CLASS_NAMES):
             tpr
         )
 
-        roc_auc_per_class[class_name] = (
-            float(class_auc)
-        )
+        roc_auc_per_class[
+            class_name
+        ] = float(class_auc)
 
-        fpr_dict[class_name] = fpr
-        tpr_dict[class_name] = tpr
+        fpr_dict[
+            class_name
+        ] = fpr
+
+        tpr_dict[
+            class_name
+        ] = tpr
 
     except ValueError:
 
-        roc_auc_per_class[class_name] = None
+        roc_auc_per_class[
+            class_name
+        ] = None
 
 
 try:
 
     macro_roc_auc = roc_auc_score(
         y_true_one_hot,
-        y_prob,
+        fusion_probs,
         average="macro",
         multi_class="ovr"
     )
@@ -514,7 +728,7 @@ except ValueError:
 
 
 # ============================================================
-# 19. ROC CURVE PLOT
+# 20. ROC CURVE
 # ============================================================
 
 plt.figure(
@@ -555,7 +769,7 @@ plt.ylabel(
 )
 
 plt.title(
-    "ViT-B/16 512x512 - ROC Curves"
+    "EfficientNet + ViT 512x512 - Fusion ROC Curves"
 )
 
 plt.legend(
@@ -571,7 +785,8 @@ plt.grid(
 plt.tight_layout()
 
 plt.savefig(
-    OUTPUT_DIR / "roc_curves.png",
+    OUTPUT_DIR
+    / "roc_curves.png",
     dpi=200,
     bbox_inches="tight"
 )
@@ -580,7 +795,7 @@ plt.close()
 
 
 # ============================================================
-# 20. TEST PREDICTIONS
+# 21. SAVE PREDICTIONS
 # ============================================================
 
 prediction_data = {
@@ -590,22 +805,44 @@ prediction_data = {
         for i in y_true
     ],
 
-    "predicted_label": [
+    "efficientnet_prediction": [
         CLASS_NAMES[i]
-        for i in y_pred
+        for i in effnet_predictions
     ],
 
-    "correct": (
-        y_true == y_pred
+    "vit_prediction": [
+        CLASS_NAMES[i]
+        for i in vit_predictions
+    ],
+
+    "fusion_prediction": [
+        CLASS_NAMES[i]
+        for i in fusion_predictions
+    ],
+
+    "fusion_correct": (
+        y_true == fusion_predictions
     ),
 }
 
 
-for i, class_name in enumerate(CLASS_NAMES):
+# Add probabilities from all models.
+
+for i, class_name in enumerate(
+    CLASS_NAMES
+):
 
     prediction_data[
-        f"prob_{class_name}"
-    ] = y_prob[:, i]
+        f"effnet_prob_{class_name}"
+    ] = effnet_probs[:, i]
+
+    prediction_data[
+        f"vit_prob_{class_name}"
+    ] = vit_probs[:, i]
+
+    prediction_data[
+        f"fusion_prob_{class_name}"
+    ] = fusion_probs[:, i]
 
 
 predictions_df = pd.DataFrame(
@@ -613,47 +850,48 @@ predictions_df = pd.DataFrame(
 )
 
 predictions_df.to_csv(
-    OUTPUT_DIR / "test_predictions.csv",
+    OUTPUT_DIR
+    / "test_predictions.csv",
     index=False
 )
 
 
 # ============================================================
-# 21. METRICS JSON
+# 22. METRICS JSON
 # ============================================================
 
 metrics = {
 
-    "model":
-        "ViT-B/16",
+    "experiment":
+        "EfficientNet-B0 + ViT-B/16 weighted probability fusion",
 
     "input_size":
         "512x512",
 
-    "patch_size":
-        16,
-
-    "patch_grid":
-        "32x32",
-
-    "num_patch_tokens":
-        1024,
-
-    "embedding_dimension":
-        768,
-
-    "dataset":
-        str(TEST_DIR),
-
     "test_samples":
         int(len(y_true)),
 
-    "accuracy":
-        float(test_accuracy),
+    "fusion_method":
+        "weighted_probability_fusion",
 
-    "accuracy_percent":
+    "efficientnet_weight":
+        EFFNET_WEIGHT,
+
+    "vit_weight":
+        VIT_WEIGHT,
+
+    "efficientnet_test_accuracy":
+        float(effnet_accuracy),
+
+    "vit_test_accuracy":
+        float(vit_accuracy),
+
+    "fusion_test_accuracy":
+        float(fusion_accuracy),
+
+    "fusion_accuracy_percent":
         float(
-            test_accuracy * 100
+            fusion_accuracy * 100
         ),
 
     "macro_precision":
@@ -687,31 +925,27 @@ metrics = {
     "classes":
         CLASS_NAMES,
 
-    "checkpoint":
-        str(CHECKPOINT),
+    "efficientnet_checkpoint":
+        str(EFFICIENTNET_CHECKPOINT),
 
-    "checkpoint_epoch":
-        int(
-            checkpoint.get(
-                "epoch",
-                -1
-            )
+    "vit_checkpoint":
+        str(VIT_CHECKPOINT),
+
+    "fusion_config":
+        str(FUSION_CONFIG),
+
+    "validation_fusion_accuracy":
+        float(
+            fusion_config[
+                "validation_accuracy"
+            ]
         ),
 
-    "validation_accuracy":
+    "validation_fusion_macro_f1":
         float(
-            checkpoint.get(
-                "val_accuracy",
-                0
-            )
-        ),
-
-    "validation_loss":
-        float(
-            checkpoint.get(
-                "val_loss",
-                0
-            )
+            fusion_config[
+                "validation_macro_f1"
+            ]
         ),
 }
 
@@ -730,12 +964,12 @@ with open(
 
 
 # ============================================================
-# 22. PRINT FINAL RESULTS
+# 23. FINAL COMPARISON
 # ============================================================
 
 print("\n")
 print("=" * 70)
-print("ViT-B/16 512x512 TEST RESULTS")
+print("FINAL TEST FUSION RESULTS")
 print("=" * 70)
 
 print(
@@ -744,12 +978,48 @@ print(
 )
 
 print(
-    f"Test Accuracy      : "
-    f"{test_accuracy * 100:.2f}%"
+    f"EfficientNet-B0    : "
+    f"{effnet_accuracy * 100:.2f}%"
 )
 
 print(
-    f"Macro Precision    : "
+    f"ViT-B/16           : "
+    f"{vit_accuracy * 100:.2f}%"
+)
+
+print(
+    f"Fusion             : "
+    f"{fusion_accuracy * 100:.2f}%"
+)
+
+print(
+    f"\nFusion weights:"
+)
+
+print(
+    f"EfficientNet       : "
+    f"{EFFNET_WEIGHT:.2f}"
+)
+
+print(
+    f"ViT                 : "
+    f"{VIT_WEIGHT:.2f}"
+)
+
+print(
+    f"\nFusion improvement "
+    f"over EfficientNet : "
+    f"{(fusion_accuracy - effnet_accuracy) * 100:+.2f} percentage points"
+)
+
+print(
+    f"Fusion improvement "
+    f"over ViT          : "
+    f"{(fusion_accuracy - vit_accuracy) * 100:+.2f} percentage points"
+)
+
+print(
+    f"\nMacro Precision    : "
     f"{precision_macro * 100:.2f}%"
 )
 
@@ -784,6 +1054,7 @@ if macro_roc_auc is not None:
         f"Macro ROC-AUC      : "
         f"{macro_roc_auc:.4f}"
     )
+
 
 print("\nPer-class ROC-AUC:")
 
@@ -837,6 +1108,20 @@ print(
 print(
     OUTPUT_DIR
     / "test_predictions.csv"
+)
+
+print("=" * 70)
+
+print(
+    "\n✓ FINAL TEST FUSION COMPLETE"
+)
+
+print(
+    "✓ Fusion weight was selected using validation data only."
+)
+
+print(
+    "✓ Test set was used only for final evaluation."
 )
 
 print("=" * 70)

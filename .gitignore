@@ -188,3 +188,6 @@ logs/
 data/acquired/
 # TYPESCRIPT BUILD ARTIFACTS
 *.tsbuildinfo
+
+# Respira 512x512 preprocessed dataset
+data/Lung_Disease_Preprocessed_512/
