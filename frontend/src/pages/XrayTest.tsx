@@ -12,6 +12,9 @@ const FALLBACK_MODELS: AvailableModel[] = [
   { key: "efficientnet", name: "EfficientNet-B0", version: "efficientnet-b0-1.0", description: "CNN baseline, fast single-model prediction", loaded: true, error: null },
   { key: "vit", name: "ViT-B/16", version: "vit-b16-1.0", description: "Transformer baseline, attention-based prediction", loaded: true, error: null },
   { key: "densenet", name: "DenseNet-121", version: "densenet121-1.0", description: "Research baseline CNN", loaded: true, error: null },
+  { key: "fusion-512", name: "Respira Fusion (512)", version: "respira-fusion-512-1.0", description: "Weighted 512x512 EfficientNet + ViT fusion (high-resolution)", loaded: true, error: null },
+  { key: "efficientnet-512", name: "EfficientNet-B0 (512)", version: "efficientnet-b0-512-1.0", description: "High-resolution 512x512 CNN", loaded: true, error: null },
+  { key: "vit-512", name: "ViT-B/16 (512)", version: "vit-b16-512-1.0", description: "High-resolution 512x512 transformer", loaded: true, error: null },
 ];
 
 export function XrayTest() {

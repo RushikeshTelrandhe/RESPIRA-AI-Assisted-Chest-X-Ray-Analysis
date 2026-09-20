@@ -344,19 +344,17 @@ class VisionTransformerModel(nn.Module):
         """
         Extract ViT patch tokens and CLS representation.
 
-        Input:
-            [B, 3, 512, 512]
+        Supports both 224x224 (196 tokens, legacy) and 512x512
+        (1024 tokens, high-resolution) inputs. Positional
+        embeddings are interpolated to the required grid.
 
         Returns:
-            tokens:
-                [B, 1024, 768]
-
-            pooled:
-                [B, 768]
+            tokens: [B, N, 768] where N is 196 or 1024
+            pooled: [B, 768]
         """
 
         # ----------------------------------------------------
-        # Validate input
+        # Validate input (supports 224 and 512 square inputs)
         # ----------------------------------------------------
 
         if x.ndim != 4:
@@ -367,28 +365,20 @@ class VisionTransformerModel(nn.Module):
             )
 
         if (
-            x.shape[-2] != IMAGE_SIZE
-            or x.shape[-1] != IMAGE_SIZE
+            x.shape[-2] != x.shape[-1]
+            or x.shape[-2] not in (224, 512)
         ):
             raise ValueError(
-                f"ViT-B/16 expects "
-                f"{IMAGE_SIZE}x{IMAGE_SIZE} input. "
+                "ViT-B/16 expects 224x224 or 512x512 input. "
                 f"Got {x.shape[-2]}x{x.shape[-1]}."
             )
 
+        # Patch projection (torchvision validates image_size, so sync
+        # it with the actual input: 224 legacy or 512 high-resolution).
+        # The 16x16 conv itself works for any multiple of 16.
         # ----------------------------------------------------
-        # Patch projection
-        #
-        # torchvision ViT:
-        #
-        # 512x512
-        #   ↓
-        # 32x32 patches
-        #   ↓
-        # 1024 patches
-        #   ↓
-        # 768-dimensional embeddings
-        # ----------------------------------------------------
+
+        self.backbone.image_size = x.shape[-1]
 
         x = self.backbone._process_input(x)
 

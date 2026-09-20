@@ -185,17 +185,20 @@ def apply_lung_mask(
 
 def process_image_array(
     image: np.ndarray,
+    image_size: int = IMAGE_SIZE,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Parameters
     ----------
     image:
         RGB (H, W, 3) or grayscale (H, W) array.
+    image_size:
+        Output square size (224 legacy / 512 high-resolution).
 
     Returns
     -------
     final:
-        (224, 224, 3) uint8 RGB image.
+        (image_size, image_size, 3) uint8 RGB image.
     lung_mask:
         (H, W) uint8 lung mask from the ORIGINAL dimensions.
     """
@@ -213,7 +216,7 @@ def process_image_array(
 
     resized = cv2.resize(
         masked,
-        (IMAGE_SIZE, IMAGE_SIZE),
+        (image_size, image_size),
         interpolation=cv2.INTER_AREA,
     )
 
@@ -227,6 +230,7 @@ def process_image_array(
 
 def preprocess_pil(
     pil_image: Image.Image,
+    image_size: int = IMAGE_SIZE,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Convert a PIL image into the model input and the lung mask.
@@ -237,5 +241,6 @@ def preprocess_pil(
     )
 
     return process_image_array(
-        image
+        image,
+        image_size=image_size,
     )
