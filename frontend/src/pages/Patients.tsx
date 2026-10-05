@@ -1,65 +1,283 @@
-import { useEffect, useState } from "react";
+import { SearchInput } from "../components/SearchInput";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { Plus, Search, ArrowRight } from "lucide-react";
 import { api, type Patient } from "../services/api";
 import { useAuth } from "../context/AuthContext";
-import { EmptyState } from "../components/widgets";
-
+import {
+  useResource,
+  useUnsavedChanges,
+  useWorkspace,
+} from "../context/WorkspaceContext";
+import {
+  Alert,
+  Empty,
+  LoadingBlock,
+  Modal,
+  PageHeader,
+  SubmitButton,
+} from "../components/UI";
+import { errorText } from "../utils/display";
+const blank = {
+  full_name: "",
+  patient_code: "",
+  age: "",
+  gender: "",
+  phone: "",
+  medical_history: "",
+  notes: "",
+};
 export function Patients() {
   const { token } = useAuth();
-  const [items, setItems] = useState<Patient[]>([]);
+  const { cache } = useWorkspace();
   const [q, setQ] = useState("");
-  const [error, setError] = useState("");
-  const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ full_name: "", patient_code: "", age: "", gender: "", phone: "", medical_history: "", notes: "" });
-
-  const load = async (query = "") => {
-    try { setItems(await api.get<Patient[]>(`/api/v1/patients?q=${encodeURIComponent(query)}`, token)); }
-    catch (e) { setError(e instanceof Error ? e.message : "Failed to load"); }
-  };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault(); setError("");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const pending = useRef(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setQuery(q.trim()), 250);
+    return () => window.clearTimeout(t);
+  }, [q]);
+  const list = useResource<Patient[]>("patients:" + query, () =>
+    api.get("/api/v1/patients?q=" + encodeURIComponent(query), token),
+  );
+  const dirty = Object.values(form).some(Boolean);
+  useUnsavedChanges(
+    open && dirty,
+    "The new patient form has unsaved information. Leave and discard it?",
+  );
+  const set =
+    (key: keyof typeof form) =>
+    (
+      e: React.ChangeEvent<
+        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      >,
+    ) =>
+      setForm({ ...form, [key]: e.target.value });
+  async function create(e: FormEvent) {
+    e.preventDefault();
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setSubmitError("");
     try {
-      await api.post("/api/v1/patients", { ...form, age: form.age ? Number(form.age) : 0 }, token);
-      setShow(false); setForm({ full_name: "", patient_code: "", age: "", gender: "", phone: "", medical_history: "", notes: "" });
-      await load(q);
-    } catch (e2) { setError(e2 instanceof Error ? e2.message : "Create failed"); }
-  };
-
+      await api.post(
+        "/api/v1/patients",
+        { ...form, age: form.age ? Number(form.age) : 0 },
+        token,
+      );
+      cache.invalidate("patients:");
+      cache.invalidate("dashboard");
+      setForm(blank);
+      setOpen(false);
+      list.reload();
+    } catch (e) {
+      setSubmitError(errorText(e));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Patients</h1>
-        <button className="btn-primary" onClick={() => setShow(!show)}>{show ? "Close" : "Add Patient"}</button>
+    <div className="stack">
+      <PageHeader
+        eyebrow="Patient directory"
+        title="Patients"
+        description="Search existing records or add a patient before starting an analysis."
+        action={
+          <button className="btn-primary" onClick={() => setOpen(true)}>
+            <Plus size={18} />
+            Add patient
+          </button>
+        }
+      />
+      <div className="clinical-section-row">
+        <div><h2>Patient directory</h2><p className="small muted">{list.data ? `${list.data.length} records` : 'Checking records…'}</p></div>
+        <SearchInput value={q} onChange={setQ} label="Search patients" placeholder="Name, patient code or phone…" />
       </div>
-      <div className="flex gap-2">
-        <input className="input max-w-sm" placeholder="Search name, ID, or phone…" value={q} onChange={(e) => { setQ(e.target.value); void load(e.target.value); }} aria-label="Search patients" />
-      </div>
-      {error && <div role="alert" className="card border-rose-200 p-3 text-sm text-rose-700">{error}</div>}
-      {show && (
-        <form onSubmit={create} className="card grid gap-3 p-5 sm:grid-cols-2">
-          <div><label className="label">Full name *</label><input className="input" required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></div>
-          <div><label className="label">Patient ID</label><input className="input" value={form.patient_code} onChange={(e) => setForm({ ...form, patient_code: e.target.value })} /></div>
-          <div><label className="label">Age</label><input className="input" type="number" min={0} max={150} value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} /></div>
-          <div><label className="label">Gender</label>
-            <select className="input" value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option value="">—</option><option>Male</option><option>Female</option><option>Other</option></select></div>
-          <div><label className="label">Phone</label><input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-          <div><label className="label">Medical history</label><input className="input" value={form.medical_history} onChange={(e) => setForm({ ...form, medical_history: e.target.value })} /></div>
-          <div className="sm:col-span-2"><label className="label">Notes</label><input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
-          <div className="sm:col-span-2"><button className="btn-primary">Save patient</button></div>
+      {list.loading ? (
+        <LoadingBlock label="Loading patients…" />
+      ) : list.error ? (
+        <Alert retry={list.reload}>{list.error}</Alert>
+      ) : !list.data?.length ? (
+        <Empty
+          title={query ? "No matching patients" : "No patients yet"}
+          hint={
+            query
+              ? "Try a different name, code or phone."
+              : "Add the first patient to begin."
+          }
+          action={
+            !query ? (
+              <button className="btn-primary" onClick={() => setOpen(true)}>
+                Add patient
+              </button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Patient</th>
+                <th>Patient code</th>
+                <th>Age / gender</th>
+                <th>Contact</th>
+                <th>Analyses</th>
+                <th>
+                  <span className="sr-only">Open</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.data.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <div className="table-person">
+                      <span className="avatar">{p.full_name.charAt(0)}</span>
+                      <Link className="row-name" to={"/patients/" + p.id}>
+                        {p.full_name}
+                      </Link>
+                    </div>
+                  </td>
+                  <td className="mono">{p.patient_code || p.id.slice(0, 8)}</td>
+                  <td>
+                    {p.age || "—"} / {p.gender || "—"}
+                  </td>
+                  <td>{p.phone || "Not provided"}</td>
+                  <td>{p.test_count}</td>
+                  <td>
+                    <Link
+                      className="icon-button"
+                      aria-label={"Open " + p.full_name}
+                      to={"/patients/" + p.id}
+                    >
+                      <ArrowRight size={17} />
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <Modal
+        open={open}
+        title="Add a patient"
+        onDismiss={() => !busy && setOpen(false)}
+      >
+        <form className="modal-body stack" onSubmit={create}>
+          {submitError && <Alert>{submitError}</Alert>}
+          <div className="form-grid">
+            <div>
+              <label className="label" htmlFor="patient-name">
+                Full name *
+              </label>
+              <input
+                id="patient-name"
+                className="input"
+                required
+                value={form.full_name}
+                onChange={set("full_name")}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="patient-code">
+                Patient code
+              </label>
+              <input
+                id="patient-code"
+                className="input"
+                value={form.patient_code}
+                onChange={set("patient_code")}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="patient-age">
+                Age
+              </label>
+              <input
+                id="patient-age"
+                className="input"
+                type="number"
+                min="0"
+                max="150"
+                value={form.age}
+                onChange={set("age")}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="patient-gender">
+                Gender
+              </label>
+              <select
+                id="patient-gender"
+                className="input"
+                value={form.gender}
+                onChange={set("gender")}
+              >
+                <option value="">Not provided</option>
+                <option>Female</option>
+                <option>Male</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="patient-phone">
+                Phone
+              </label>
+              <input
+                id="patient-phone"
+                className="input"
+                type="tel"
+                value={form.phone}
+                onChange={set("phone")}
+              />
+            </div>
+            <div className="full-width">
+              <label className="label" htmlFor="patient-history">
+                Medical history
+              </label>
+              <textarea
+                id="patient-history"
+                className="input"
+                rows={3}
+                value={form.medical_history}
+                onChange={set("medical_history")}
+              />
+            </div>
+            <div className="full-width">
+              <label className="label" htmlFor="patient-notes">
+                Notes
+              </label>
+              <textarea
+                id="patient-notes"
+                className="input"
+                rows={3}
+                value={form.notes}
+                onChange={set("notes")}
+              />
+            </div>
+          </div>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="btn-ghost"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </button>
+            <SubmitButton busy={busy} busyText="Saving patient…">
+              Save patient
+            </SubmitButton>
+          </div>
         </form>
-      )}
-      {items.length === 0 ? <EmptyState title="No patients yet" hint="Add your first patient to begin." /> : (
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {items.map((p) => (
-            <li key={p.id} className="card p-4">
-              <Link to={`/patients/${p.id}`} className="font-semibold text-brand-700 hover:underline">{p.full_name}</Link>
-              <div className="mt-1 text-sm text-slate-500">{p.patient_code || p.id.slice(0, 8)} · {p.age ? `${p.age} y` : "—"} · {p.gender || "—"} · {p.test_count} test{p.test_count === 1 ? "" : "s"}</div>
-            </li>
-          ))}
-        </ul>
-      )}
+      </Modal>
     </div>
   );
 }
