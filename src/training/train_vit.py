@@ -1,41 +1,11 @@
 # ============================================================
-# RESPIRA - VISION TRANSFORMER TRAINING
-# ============================================================
-#
-# File:
-#   src/training/train_vit.py
-#
-# Purpose:
-#   Train pretrained ViT-B/16 on the Respira processed
-#   chest X-ray dataset.
-#
-# Dataset:
-#   data/processed/
-#
-# Classes:
-#   1. Atelectasis
-#   2. Bacterial Pneumonia
-#   3. Normal
-#   4. Pulmonary Edema
-#   5. Tuberculosis
-#   6. Viral Pneumonia
-#
-# Output:
-#   outputs/vit/
-#       checkpoints/
-#       logs/
-#       metrics/
-#       plots/
-#
+# RESPIRA - ViT-B/16 512x512 TRAINING
 # ============================================================
 
-from __future__ import annotations
-
+from pathlib import Path
 import json
 import random
 import time
-from pathlib import Path
-import sys
 
 import numpy as np
 import pandas as pd
@@ -45,98 +15,43 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
 
-from PIL import Image
-from torchvision import transforms
-
-from tqdm import tqdm
+from src.models.vit import VisionTransformerModel
 
 
 # ============================================================
-# PROJECT ROOT
+# 1. PATHS
 # ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-
-# ============================================================
-# IMPORT MODEL
-# ============================================================
-
-from src.models.vit import (
-    VisionTransformerModel,
-    CLASS_NAMES,
+DATA_DIR = (
+    PROJECT_ROOT
+    / "data"
+    / "Lung_Disease_Preprocessed_512"
 )
 
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-SEED = 42
-
-IMAGE_SIZE = 224
-
-NUM_CLASSES = 6
-
-BATCH_SIZE = 16
-
-EPOCHS = 30
-
-LEARNING_RATE = 1e-4
-
-WEIGHT_DECAY = 1e-4
-
-NUM_WORKERS = 0
-
-PATIENCE = 7
-
-MODEL_NAME = "ViT-B/16"
-
-
-# ============================================================
-# DIRECTORIES
-# ============================================================
-
-DATA_DIR = PROJECT_ROOT / "data" / "processed"
+TRAIN_DIR = DATA_DIR / "train"
+VAL_DIR = DATA_DIR / "val"
+TEST_DIR = DATA_DIR / "test"
 
 OUTPUT_DIR = (
     PROJECT_ROOT
     / "outputs"
-    / "vit"
+    / "vit_512"
 )
 
-CHECKPOINT_DIR = (
-    OUTPUT_DIR
-    / "checkpoints"
-)
-
-LOG_DIR = (
-    OUTPUT_DIR
-    / "logs"
-)
-
-METRICS_DIR = (
-    OUTPUT_DIR
-    / "metrics"
-)
-
-PLOTS_DIR = (
-    OUTPUT_DIR
-    / "plots"
-)
-
+CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
+PLOTS_DIR = OUTPUT_DIR / "plots"
+EVALUATION_DIR = OUTPUT_DIR / "evaluation"
 
 for directory in [
     OUTPUT_DIR,
     CHECKPOINT_DIR,
-    LOG_DIR,
-    METRICS_DIR,
     PLOTS_DIR,
+    EVALUATION_DIR,
 ]:
     directory.mkdir(
         parents=True,
@@ -145,18 +60,54 @@ for directory in [
 
 
 # ============================================================
-# REPRODUCIBILITY
+# 2. CONFIGURATION
 # ============================================================
 
-def set_seed(seed: int = 42):
+IMAGE_SIZE = 512
+NUM_CLASSES = 6
+
+# ViT-B/16 at 512 is substantially more memory-intensive
+# than EfficientNet because it processes 1024 patch tokens.
+BATCH_SIZE = 8
+
+NUM_WORKERS = 0
+
+TOTAL_EPOCHS = 30
+
+# Classifier warm-up
+STAGE1_EPOCHS = 3
+
+STAGE1_LR = 1e-3
+STAGE2_LR = 1e-5
+
+WEIGHT_DECAY = 1e-4
+
+EARLY_STOPPING_PATIENCE = 7
+
+SEED = 42
+
+CLASS_NAMES = [
+    "Atelectasis",
+    "Bacterial Pneumonia",
+    "Normal",
+    "Pulmonary Edema",
+    "Tuberculosis",
+    "Viral Pneumonia",
+]
+
+
+# ============================================================
+# 3. REPRODUCIBILITY
+# ============================================================
+
+def set_seed(seed=42):
 
     random.seed(seed)
-
     np.random.seed(seed)
-
     torch.manual_seed(seed)
 
     if torch.cuda.is_available():
+
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
@@ -168,7 +119,7 @@ set_seed(SEED)
 
 
 # ============================================================
-# DEVICE
+# 4. DEVICE
 # ============================================================
 
 DEVICE = torch.device(
@@ -177,166 +128,54 @@ DEVICE = torch.device(
     else "cpu"
 )
 
+AMP_ENABLED = DEVICE.type == "cuda"
+
+print("=" * 70)
+print("RESPIRA - ViT-B/16 512x512 TRAINING")
+print("=" * 70)
+
+print(f"Device       : {DEVICE}")
+
+if torch.cuda.is_available():
+
+    print(
+        f"GPU          : "
+        f"{torch.cuda.get_device_name(0)}"
+    )
+
+print(f"Image Size   : {IMAGE_SIZE}x{IMAGE_SIZE}")
+print(f"Batch Size   : {BATCH_SIZE}")
+print(f"Epochs       : {TOTAL_EPOCHS}")
+print(f"Mixed AMP    : {AMP_ENABLED}")
+
+print(f"Dataset      : {DATA_DIR}")
+print(f"Output       : {OUTPUT_DIR}")
+
+print("=" * 70)
+
 
 # ============================================================
-# DATASET
+# 5. VERIFY DIRECTORIES
 # ============================================================
 
-class ChestXrayDataset(Dataset):
-    """
-    ImageFolder-style dataset for the processed Respira
-    dataset.
+for directory in [
+    TRAIN_DIR,
+    VAL_DIR,
+    TEST_DIR,
+]:
 
-    Expected structure:
+    if not directory.exists():
 
-        processed/
-        ├── train/
-        │   ├── Atelectasis/
-        │   ├── Bacterial Pneumonia/
-        │   ├── Normal/
-        │   ├── Pulmonary Edema/
-        │   ├── Tuberculosis/
-        │   └── Viral Pneumonia/
-        │
-        ├── val/
-        └── test/
-    """
-
-    EXTENSIONS = {
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".bmp",
-        ".tif",
-        ".tiff",
-    }
-
-    def __init__(
-        self,
-        root_dir: Path,
-        split: str,
-        transform=None,
-    ):
-
-        self.root_dir = Path(root_dir)
-        self.split = split
-        self.transform = transform
-
-        self.split_dir = (
-            self.root_dir / split
+        raise FileNotFoundError(
+            f"Required directory not found:\n{directory}"
         )
 
-        if not self.split_dir.exists():
-
-            raise FileNotFoundError(
-                f"Dataset split does not exist:\n"
-                f"{self.split_dir}"
-            )
-
-        self.class_names = CLASS_NAMES
-
-        self.class_to_idx = {
-            name: idx
-            for idx, name in enumerate(
-                self.class_names
-            )
-        }
-
-        self.samples = []
-
-        self._collect_samples()
-
-        if len(self.samples) == 0:
-
-            raise RuntimeError(
-                f"No images found in:\n"
-                f"{self.split_dir}"
-            )
-
-    # --------------------------------------------------------
-    # Collect images
-    # --------------------------------------------------------
-
-    def _collect_samples(self):
-
-        for class_name in self.class_names:
-
-            class_dir = (
-                self.split_dir
-                / class_name
-            )
-
-            if not class_dir.exists():
-
-                raise FileNotFoundError(
-                    f"Required class directory missing:\n"
-                    f"{class_dir}"
-                )
-
-            label = self.class_to_idx[
-                class_name
-            ]
-
-            images = sorted(
-                [
-                    p
-                    for p in class_dir.rglob("*")
-                    if (
-                        p.is_file()
-                        and
-                        p.suffix.lower()
-                        in self.EXTENSIONS
-                    )
-                ]
-            )
-
-            for image_path in images:
-
-                self.samples.append(
-                    (
-                        image_path,
-                        label,
-                    )
-                )
-
-    # --------------------------------------------------------
-    # Dataset length
-    # --------------------------------------------------------
-
-    def __len__(self):
-
-        return len(self.samples)
-
-    # --------------------------------------------------------
-    # Get item
-    # --------------------------------------------------------
-
-    def __getitem__(self, index):
-
-        image_path, label = (
-            self.samples[index]
-        )
-
-        image = Image.open(
-            image_path
-        ).convert("RGB")
-
-        if self.transform is not None:
-
-            image = self.transform(
-                image
-            )
-
-        return image, label
-
 
 # ============================================================
-# TRANSFORMS
+# 6. TRANSFORMS
 # ============================================================
 
-# ViT pretrained weights expect ImageNet normalization.
-
-TRAIN_TRANSFORM = transforms.Compose([
+train_transform = transforms.Compose([
 
     transforms.Resize(
         (IMAGE_SIZE, IMAGE_SIZE)
@@ -347,27 +186,20 @@ TRAIN_TRANSFORM = transforms.Compose([
     ),
 
     transforms.RandomRotation(
-        degrees=5
+        degrees=5,
+        fill=0
     ),
 
     transforms.ToTensor(),
 
     transforms.Normalize(
-        mean=[
-            0.485,
-            0.456,
-            0.406,
-        ],
-        std=[
-            0.229,
-            0.224,
-            0.225,
-        ],
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
     ),
 ])
 
 
-VAL_TRANSFORM = transforms.Compose([
+eval_transform = transforms.Compose([
 
     transforms.Resize(
         (IMAGE_SIZE, IMAGE_SIZE)
@@ -376,66 +208,118 @@ VAL_TRANSFORM = transforms.Compose([
     transforms.ToTensor(),
 
     transforms.Normalize(
-        mean=[
-            0.485,
-            0.456,
-            0.406,
-        ],
-        std=[
-            0.229,
-            0.224,
-            0.225,
-        ],
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
     ),
 ])
 
 
 # ============================================================
-# CREATE DATASETS
+# 7. DATASETS
 # ============================================================
 
-print("=" * 70)
-print("RESPIRA - VISION TRANSFORMER TRAINING")
-print("=" * 70)
-
-print("\nDevice:")
-
-print(
-    " ",
-    DEVICE
+train_dataset = datasets.ImageFolder(
+    TRAIN_DIR,
+    transform=train_transform
 )
 
-if torch.cuda.is_available():
+val_dataset = datasets.ImageFolder(
+    VAL_DIR,
+    transform=eval_transform
+)
+
+# Loaded only to verify the split/class structure.
+# It is NOT used for model selection.
+test_dataset = datasets.ImageFolder(
+    TEST_DIR,
+    transform=eval_transform
+)
+
+
+# ============================================================
+# 8. CLASS VERIFICATION
+# ============================================================
+
+print("\nClass verification:")
+
+print("Train:", train_dataset.classes)
+print("Val  :", val_dataset.classes)
+print("Test :", test_dataset.classes)
+
+if train_dataset.classes != CLASS_NAMES:
+
+    raise ValueError(
+        f"Train class order mismatch.\n"
+        f"Expected: {CLASS_NAMES}\n"
+        f"Found: {train_dataset.classes}"
+    )
+
+if val_dataset.classes != CLASS_NAMES:
+
+    raise ValueError(
+        f"Validation class order mismatch.\n"
+        f"Expected: {CLASS_NAMES}\n"
+        f"Found: {val_dataset.classes}"
+    )
+
+if test_dataset.classes != CLASS_NAMES:
+
+    raise ValueError(
+        f"Test class order mismatch.\n"
+        f"Expected: {CLASS_NAMES}\n"
+        f"Found: {test_dataset.classes}"
+    )
+
+print("✓ Class order verified")
+
+
+# ============================================================
+# 9. DATASET INFORMATION
+# ============================================================
+
+print("\nDataset:")
+
+print(
+    f"Train images : "
+    f"{len(train_dataset)}"
+)
+
+print(
+    f"Val images   : "
+    f"{len(val_dataset)}"
+)
+
+print(
+    f"Test images  : "
+    f"{len(test_dataset)}"
+)
+
+
+# ============================================================
+# 10. CLASS DISTRIBUTION
+# ============================================================
+
+print("\nTraining class distribution:")
+
+class_counts = {}
+
+for index, class_name in enumerate(CLASS_NAMES):
+
+    count = sum(
+        1
+        for label in train_dataset.targets
+        if label == index
+    )
+
+    class_counts[class_name] = count
 
     print(
-        "GPU:",
-        torch.cuda.get_device_name(0)
+        f"{class_name:<25} : {count}"
     )
 
 
-print("\nProcessed dataset:")
-print(
-    " ",
-    DATA_DIR
-)
-
-
-train_dataset = ChestXrayDataset(
-    root_dir=DATA_DIR,
-    split="train",
-    transform=TRAIN_TRANSFORM,
-)
-
-
-val_dataset = ChestXrayDataset(
-    root_dir=DATA_DIR,
-    split="val",
-    transform=VAL_TRANSFORM,
-)
-
-
 # ============================================================
-# DATA LOADERS
+# 11. DATALOADERS
 # ============================================================
 
 train_loader = DataLoader(
@@ -445,7 +329,6 @@ train_loader = DataLoader(
     num_workers=NUM_WORKERS,
     pin_memory=torch.cuda.is_available(),
 )
-
 
 val_loader = DataLoader(
     val_dataset,
@@ -457,28 +340,7 @@ val_loader = DataLoader(
 
 
 # ============================================================
-# DATASET INFORMATION
-# ============================================================
-
-print("\nDataset:")
-print(
-    "  Train images:",
-    len(train_dataset)
-)
-
-print(
-    "  Validation images:",
-    len(val_dataset)
-)
-
-print(
-    "  Classes:",
-    CLASS_NAMES
-)
-
-
-# ============================================================
-# MODEL
+# 12. CREATE ViT MODEL
 # ============================================================
 
 print("\nLoading pretrained ViT-B/16...")
@@ -491,10 +353,6 @@ model = VisionTransformerModel(
 model = model.to(DEVICE)
 
 
-# ============================================================
-# PARAMETER INFORMATION
-# ============================================================
-
 total_parameters = sum(
     p.numel()
     for p in model.parameters()
@@ -506,90 +364,151 @@ trainable_parameters = sum(
     if p.requires_grad
 )
 
-
-print("\nModel:")
 print(
-    "  Architecture:",
-    MODEL_NAME
-)
-
-print(
-    "  Total parameters:",
+    f"Total parameters     : "
     f"{total_parameters:,}"
 )
 
 print(
-    "  Trainable parameters:",
+    f"Trainable parameters : "
     f"{trainable_parameters:,}"
 )
 
 
 # ============================================================
-# LOSS
+# 13. LOSS
 # ============================================================
 
 criterion = nn.CrossEntropyLoss()
 
 
 # ============================================================
-# OPTIMIZER
+# 14. MIXED PRECISION
 # ============================================================
 
-optimizer = AdamW(
-    model.parameters(),
-    lr=LEARNING_RATE,
-    weight_decay=WEIGHT_DECAY,
-)
+if AMP_ENABLED:
+
+    try:
+
+        scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=True
+        )
+
+    except AttributeError:
+
+        scaler = torch.cuda.amp.GradScaler(
+            enabled=True
+        )
+
+else:
+
+    scaler = None
+
+
+def autocast_context():
+
+    if AMP_ENABLED:
+
+        try:
+
+            return torch.amp.autocast(
+                device_type="cuda",
+                enabled=True
+            )
+
+        except AttributeError:
+
+            return torch.cuda.amp.autocast(
+                enabled=True
+            )
+
+    return torch.autocast(
+        device_type="cpu",
+        enabled=False
+    )
 
 
 # ============================================================
-# LEARNING RATE SCHEDULER
+# 15. FREEZE / UNFREEZE
 # ============================================================
 
-scheduler = ReduceLROnPlateau(
-    optimizer,
-    mode="min",
-    factor=0.1,
-    patience=2,
-)
+def freeze_vit_backbone(model):
+
+    """
+    Freeze the pretrained ViT encoder and train only
+    the final classification head.
+    """
+
+    # The modified Respira ViT contains:
+    # model.backbone
+    # model.classifier
+
+    for parameter in model.backbone.parameters():
+
+        parameter.requires_grad = False
+
+    for parameter in model.classifier.parameters():
+
+        parameter.requires_grad = True
+
+    model.backbone.eval()
+    model.classifier.train()
 
 
-# ============================================================
-# TRAINING STORAGE
-# ============================================================
+def unfreeze_vit(model):
 
-history = []
+    """
+    Unfreeze the complete ViT for fine-tuning.
+    """
 
-best_val_loss = float("inf")
+    for parameter in model.parameters():
 
-best_val_accuracy = 0.0
-
-epochs_without_improvement = 0
-
-start_time = time.time()
-
-
-# ============================================================
-# TRAINING FUNCTION
-# ============================================================
-
-def train_one_epoch():
+        parameter.requires_grad = True
 
     model.train()
+
+
+# ============================================================
+# 16. OUTPUT EXTRACTION
+# ============================================================
+
+def get_logits(outputs):
+
+    if isinstance(outputs, dict):
+
+        return outputs["logits"]
+
+    return outputs
+
+
+# ============================================================
+# 17. TRAINING FUNCTION
+# ============================================================
+
+def train_one_epoch(
+    model,
+    loader,
+    optimizer,
+    criterion,
+    freeze_backbone=False,
+):
+
+    model.train()
+
+    if freeze_backbone:
+
+        model.backbone.eval()
+        model.classifier.train()
 
     running_loss = 0.0
 
     correct = 0
-
     total = 0
 
-    progress = tqdm(
-        train_loader,
-        desc="Training",
-        leave=False,
-    )
+    start_time = time.time()
 
-    for images, labels in progress:
+    for images, labels in loader:
 
         images = images.to(
             DEVICE,
@@ -601,67 +520,54 @@ def train_one_epoch():
             non_blocking=True
         )
 
-        # ----------------------------------------------------
-        # Clear gradients
-        # ----------------------------------------------------
-
         optimizer.zero_grad(
             set_to_none=True
         )
 
-        # ----------------------------------------------------
-        # Forward
-        # ----------------------------------------------------
+        with autocast_context():
 
-        output = model(images)
+            outputs = model(images)
 
-        logits = output["logits"]
+            logits = get_logits(outputs)
 
-        # ----------------------------------------------------
-        # Loss
-        # ----------------------------------------------------
+            loss = criterion(
+                logits,
+                labels
+            )
 
-        loss = criterion(
-            logits,
-            labels
-        )
+        if AMP_ENABLED:
 
-        # ----------------------------------------------------
-        # Backpropagation
-        # ----------------------------------------------------
+            scaler.scale(
+                loss
+            ).backward()
 
-        loss.backward()
+            scaler.step(
+                optimizer
+            )
 
-        # ----------------------------------------------------
-        # Optimizer
-        # ----------------------------------------------------
+            scaler.update()
 
-        optimizer.step()
+        else:
 
-        # ----------------------------------------------------
-        # Statistics
-        # ----------------------------------------------------
+            loss.backward()
 
-        batch_size = labels.size(0)
+            optimizer.step()
 
         running_loss += (
             loss.item()
-            * batch_size
+            * images.size(0)
         )
 
-        predictions = (
-            logits.argmax(dim=1)
+        predictions = torch.argmax(
+            logits,
+            dim=1
         )
 
         correct += (
             predictions == labels
         ).sum().item()
 
-        total += batch_size
-
-        progress.set_postfix(
-            loss=f"{loss.item():.4f}"
-        )
+        total += labels.size(0)
 
     epoch_loss = (
         running_loss / total
@@ -671,34 +577,37 @@ def train_one_epoch():
         correct / total
     )
 
+    elapsed = (
+        time.time()
+        - start_time
+    )
+
     return (
         epoch_loss,
         epoch_accuracy,
+        elapsed
     )
 
 
 # ============================================================
-# VALIDATION FUNCTION
+# 18. VALIDATION
 # ============================================================
 
 @torch.no_grad()
-def validate():
+def validate(
+    model,
+    loader,
+    criterion,
+):
 
     model.eval()
 
     running_loss = 0.0
 
     correct = 0
-
     total = 0
 
-    progress = tqdm(
-        val_loader,
-        desc="Validation",
-        leave=False,
-    )
-
-    for images, labels in progress:
+    for images, labels in loader:
 
         images = images.to(
             DEVICE,
@@ -710,86 +619,195 @@ def validate():
             non_blocking=True
         )
 
-        output = model(images)
+        with autocast_context():
 
-        logits = output["logits"]
+            outputs = model(images)
 
-        loss = criterion(
-            logits,
-            labels
-        )
+            logits = get_logits(outputs)
 
-        batch_size = labels.size(0)
+            loss = criterion(
+                logits,
+                labels
+            )
 
         running_loss += (
             loss.item()
-            * batch_size
+            * images.size(0)
         )
 
-        predictions = (
-            logits.argmax(dim=1)
+        predictions = torch.argmax(
+            logits,
+            dim=1
         )
 
         correct += (
             predictions == labels
         ).sum().item()
 
-        total += batch_size
+        total += labels.size(0)
 
-    epoch_loss = (
+    val_loss = (
         running_loss / total
     )
 
-    epoch_accuracy = (
+    val_accuracy = (
         correct / total
     )
 
     return (
-        epoch_loss,
-        epoch_accuracy,
+        val_loss,
+        val_accuracy
     )
 
 
 # ============================================================
-# TRAINING LOOP
+# 19. STAGE 1
+# ============================================================
+
+print("\n")
+print("=" * 70)
+print("STAGE 1 - CLASSIFIER WARM-UP")
+print("=" * 70)
+
+freeze_vit_backbone(model)
+
+optimizer = AdamW(
+    filter(
+        lambda p: p.requires_grad,
+        model.parameters()
+    ),
+    lr=STAGE1_LR,
+    weight_decay=WEIGHT_DECAY,
+)
+
+scheduler = ReduceLROnPlateau(
+    optimizer,
+    mode="min",
+    factor=0.5,
+    patience=2,
+)
+
+
+# ============================================================
+# 20. TRAINING STATE
+# ============================================================
+
+history = []
+
+best_val_accuracy = -1.0
+best_val_loss = float("inf")
+
+best_epoch = 0
+
+epochs_without_improvement = 0
+
+
+# ============================================================
+# 21. MAIN TRAINING LOOP
 # ============================================================
 
 for epoch in range(
     1,
-    EPOCHS + 1
+    TOTAL_EPOCHS + 1
 ):
 
-    print("\n" + "=" * 70)
+    # --------------------------------------------------------
+    # Stage transition
+    # --------------------------------------------------------
 
-    print(
-        f"EPOCH {epoch}/{EPOCHS}"
+    if epoch == STAGE1_EPOCHS + 1:
+
+        print("\n")
+        print("=" * 70)
+        print("SWITCHING TO STAGE 2 - FULL ViT FINE-TUNING")
+        print("=" * 70)
+
+        unfreeze_vit(model)
+
+        optimizer = AdamW(
+            model.parameters(),
+            lr=STAGE2_LR,
+            weight_decay=WEIGHT_DECAY,
+        )
+
+        scheduler = ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.5,
+            patience=2,
+        )
+
+        epochs_without_improvement = 0
+
+
+    # --------------------------------------------------------
+    # Stage configuration
+    # --------------------------------------------------------
+
+    if epoch <= STAGE1_EPOCHS:
+
+        current_stage = (
+            "classifier_warmup"
+        )
+
+        freeze_backbone = True
+
+    else:
+
+        current_stage = (
+            "full_finetuning"
+        )
+
+        freeze_backbone = False
+
+
+    # --------------------------------------------------------
+    # Train
+    # --------------------------------------------------------
+
+    train_loss, train_accuracy, epoch_time = (
+        train_one_epoch(
+            model=model,
+            loader=train_loader,
+            optimizer=optimizer,
+            criterion=criterion,
+            freeze_backbone=freeze_backbone,
+        )
     )
 
-    print("=" * 70)
 
-    train_loss, train_accuracy = (
-        train_one_epoch()
+    # --------------------------------------------------------
+    # Validation
+    # --------------------------------------------------------
+
+    val_loss, val_accuracy = validate(
+        model=model,
+        loader=val_loader,
+        criterion=criterion,
     )
 
-    val_loss, val_accuracy = (
-        validate()
-    )
 
     scheduler.step(
         val_loss
     )
 
+
     current_lr = (
         optimizer.param_groups[0]["lr"]
     )
 
+
     # --------------------------------------------------------
-    # Store history
+    # History
     # --------------------------------------------------------
 
     history.append({
 
         "epoch": epoch,
+
+        "stage": current_stage,
+
+        "learning_rate": current_lr,
 
         "train_loss": train_loss,
 
@@ -799,54 +817,39 @@ for epoch in range(
 
         "val_accuracy": val_accuracy,
 
-        "learning_rate": current_lr,
-
+        "epoch_time_seconds": epoch_time,
     })
 
+
     # --------------------------------------------------------
-    # Display
+    # Print
     # --------------------------------------------------------
 
     print(
-        f"\nTrain Loss      : "
-        f"{train_loss:.4f}"
+        f"Epoch [{epoch:02d}/{TOTAL_EPOCHS}] "
+        f"| {current_stage:<18} "
+        f"| LR {current_lr:.2e} "
+        f"| Train Loss {train_loss:.4f} "
+        f"| Train Acc {train_accuracy * 100:.2f}% "
+        f"| Val Loss {val_loss:.4f} "
+        f"| Val Acc {val_accuracy * 100:.2f}% "
+        f"| {epoch_time:.1f}s"
     )
 
-    print(
-        f"Train Accuracy  : "
-        f"{train_accuracy:.4f}"
-    )
-
-    print(
-        f"Val Loss        : "
-        f"{val_loss:.4f}"
-    )
-
-    print(
-        f"Val Accuracy    : "
-        f"{val_accuracy:.4f}"
-    )
-
-    print(
-        f"Learning Rate   : "
-        f"{current_lr:.8f}"
-    )
 
     # --------------------------------------------------------
     # Best checkpoint
     # --------------------------------------------------------
 
-    is_best = (
-        val_loss < best_val_loss
-    )
-
-    if is_best:
-
-        best_val_loss = val_loss
+    if val_accuracy > best_val_accuracy:
 
         best_val_accuracy = (
             val_accuracy
         )
+
+        best_val_loss = val_loss
+
+        best_epoch = epoch
 
         epochs_without_improvement = 0
 
@@ -860,26 +863,38 @@ for epoch in range(
             "optimizer_state_dict":
                 optimizer.state_dict(),
 
-            "scheduler_state_dict":
-                scheduler.state_dict(),
+            "val_accuracy":
+                val_accuracy,
 
-            "best_val_loss":
-                best_val_loss,
-
-            "best_val_accuracy":
-                best_val_accuracy,
+            "val_loss":
+                val_loss,
 
             "class_names":
                 CLASS_NAMES,
 
-            "num_classes":
-                NUM_CLASSES,
+            "class_to_idx":
+                train_dataset.class_to_idx,
 
             "image_size":
                 IMAGE_SIZE,
 
+            "num_classes":
+                NUM_CLASSES,
+
             "model_name":
-                MODEL_NAME,
+                "ViT-B/16",
+
+            "pretrained":
+                True,
+
+            "patch_size":
+                16,
+
+            "num_patch_tokens":
+                1024,
+
+            "embedding_dimension":
+                768,
 
             "seed":
                 SEED,
@@ -892,88 +907,95 @@ for epoch in range(
         )
 
         print(
-            "\n✓ Best model checkpoint saved."
+            f"  ✓ Best model saved "
+            f"(Val Acc: "
+            f"{val_accuracy * 100:.2f}%)"
         )
 
     else:
 
         epochs_without_improvement += 1
 
-    # --------------------------------------------------------
-    # Save latest checkpoint
-    # --------------------------------------------------------
-
-    latest_checkpoint = {
-
-        "epoch": epoch,
-
-        "model_state_dict":
-            model.state_dict(),
-
-        "optimizer_state_dict":
-            optimizer.state_dict(),
-
-        "scheduler_state_dict":
-            scheduler.state_dict(),
-
-        "best_val_loss":
-            best_val_loss,
-
-        "best_val_accuracy":
-            best_val_accuracy,
-
-        "class_names":
-            CLASS_NAMES,
-
-        "num_classes":
-            NUM_CLASSES,
-
-        "image_size":
-            IMAGE_SIZE,
-
-        "model_name":
-            MODEL_NAME,
-
-        "seed":
-            SEED,
-    }
-
-    torch.save(
-        latest_checkpoint,
-        CHECKPOINT_DIR
-        / "last_model.pth"
-    )
 
     # --------------------------------------------------------
     # Early stopping
     # --------------------------------------------------------
 
     if (
+        epoch > STAGE1_EPOCHS
+        and
         epochs_without_improvement
-        >= PATIENCE
+        >= EARLY_STOPPING_PATIENCE
     ):
 
         print(
             f"\nEarly stopping triggered "
-            f"after {PATIENCE} epochs "
-            f"without validation improvement."
+            f"at epoch {epoch}."
         )
 
         break
 
 
 # ============================================================
-# TRAINING TIME
+# 22. SAVE LAST CHECKPOINT
 # ============================================================
 
-training_time = (
-    time.time()
-    - start_time
+last_checkpoint = {
+
+    "epoch": epoch,
+
+    "model_state_dict":
+        model.state_dict(),
+
+    "optimizer_state_dict":
+        optimizer.state_dict(),
+
+    "val_accuracy":
+        val_accuracy,
+
+    "val_loss":
+        val_loss,
+
+    "class_names":
+        CLASS_NAMES,
+
+    "class_to_idx":
+        train_dataset.class_to_idx,
+
+    "image_size":
+        IMAGE_SIZE,
+
+    "num_classes":
+        NUM_CLASSES,
+
+    "model_name":
+        "ViT-B/16",
+
+    "pretrained":
+        True,
+
+    "patch_size":
+        16,
+
+    "num_patch_tokens":
+        1024,
+
+    "embedding_dimension":
+        768,
+
+    "seed":
+        SEED,
+}
+
+torch.save(
+    last_checkpoint,
+    CHECKPOINT_DIR
+    / "last_model.pth"
 )
 
 
 # ============================================================
-# SAVE TRAINING HISTORY
+# 23. SAVE HISTORY
 # ============================================================
 
 history_df = pd.DataFrame(
@@ -981,14 +1003,104 @@ history_df = pd.DataFrame(
 )
 
 history_df.to_csv(
-    LOG_DIR
+    OUTPUT_DIR
     / "training_history.csv",
     index=False
 )
 
 
 # ============================================================
-# TRAINING SUMMARY
+# 24. LOSS PLOT
+# ============================================================
+
+plt.figure(
+    figsize=(10, 6)
+)
+
+plt.plot(
+    history_df["epoch"],
+    history_df["train_loss"],
+    label="Training Loss"
+)
+
+plt.plot(
+    history_df["epoch"],
+    history_df["val_loss"],
+    label="Validation Loss"
+)
+
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+
+plt.title(
+    "ViT-B/16 512x512 - Loss"
+)
+
+plt.legend()
+
+plt.grid(
+    True,
+    alpha=0.3
+)
+
+plt.tight_layout()
+
+plt.savefig(
+    PLOTS_DIR
+    / "loss_curve.png",
+    dpi=200
+)
+
+plt.close()
+
+
+# ============================================================
+# 25. ACCURACY PLOT
+# ============================================================
+
+plt.figure(
+    figsize=(10, 6)
+)
+
+plt.plot(
+    history_df["epoch"],
+    history_df["train_accuracy"] * 100,
+    label="Training Accuracy"
+)
+
+plt.plot(
+    history_df["epoch"],
+    history_df["val_accuracy"] * 100,
+    label="Validation Accuracy"
+)
+
+plt.xlabel("Epoch")
+plt.ylabel("Accuracy (%)")
+
+plt.title(
+    "ViT-B/16 512x512 - Accuracy"
+)
+
+plt.legend()
+
+plt.grid(
+    True,
+    alpha=0.3
+)
+
+plt.tight_layout()
+
+plt.savefig(
+    PLOTS_DIR
+    / "accuracy_curve.png",
+    dpi=200
+)
+
+plt.close()
+
+
+# ============================================================
+# 26. EXPERIMENT SUMMARY
 # ============================================================
 
 summary = {
@@ -996,8 +1108,20 @@ summary = {
     "model":
         "ViT-B/16",
 
-    "pretrained":
-        True,
+    "input_size":
+        "512x512",
+
+    "patch_size":
+        16,
+
+    "patch_grid":
+        "32x32",
+
+    "num_patch_tokens":
+        1024,
+
+    "embedding_dimension":
+        768,
 
     "num_classes":
         NUM_CLASSES,
@@ -1005,44 +1129,73 @@ summary = {
     "classes":
         CLASS_NAMES,
 
-    "image_size":
-        IMAGE_SIZE,
+    "dataset":
+        str(DATA_DIR),
+
+    "train_images":
+        len(train_dataset),
+
+    "validation_images":
+        len(val_dataset),
+
+    "test_images":
+        len(test_dataset),
 
     "batch_size":
         BATCH_SIZE,
 
-    "epochs_requested":
-        EPOCHS,
+    "total_epochs_configured":
+        TOTAL_EPOCHS,
 
     "epochs_completed":
         len(history),
 
-    "learning_rate":
-        LEARNING_RATE,
+    "stage1_epochs":
+        STAGE1_EPOCHS,
+
+    "stage1_learning_rate":
+        STAGE1_LR,
+
+    "stage2_learning_rate":
+        STAGE2_LR,
 
     "weight_decay":
         WEIGHT_DECAY,
 
-    "best_validation_loss":
-        best_val_loss,
+    "pretrained":
+        True,
+
+    "mixed_precision":
+        AMP_ENABLED,
+
+    "seed":
+        SEED,
+
+    "best_epoch":
+        best_epoch,
 
     "best_validation_accuracy":
         best_val_accuracy,
 
-    "training_time_seconds":
-        training_time,
+    "best_validation_loss":
+        best_val_loss,
 
-    "device":
-        str(DEVICE),
+    "class_distribution":
+        class_counts,
 
+    "checkpoint":
+        str(
+            CHECKPOINT_DIR
+            / "best_model.pth"
+        ),
 }
 
 
 with open(
-    METRICS_DIR
-    / "training_summary.json",
+    OUTPUT_DIR
+    / "experiment_summary.json",
     "w",
-    encoding="utf-8",
+    encoding="utf-8"
 ) as f:
 
     json.dump(
@@ -1053,102 +1206,28 @@ with open(
 
 
 # ============================================================
-# PLOT TRAINING LOSS
+# 27. FINAL OUTPUT
 # ============================================================
 
-plt.figure(
-    figsize=(10, 6)
-)
-
-plt.plot(
-    history_df["epoch"],
-    history_df["train_loss"],
-    label="Train Loss"
-)
-
-plt.plot(
-    history_df["epoch"],
-    history_df["val_loss"],
-    label="Validation Loss"
-)
-
-plt.xlabel("Epoch")
-
-plt.ylabel("Loss")
-
-plt.title(
-    "ViT-B/16 Training and Validation Loss"
-)
-
-plt.legend()
-
-plt.grid(True)
-
-plt.tight_layout()
-
-plt.savefig(
-    PLOTS_DIR
-    / "loss_curve.png",
-    dpi=300,
-)
-
-plt.close()
-
-
-# ============================================================
-# PLOT TRAINING ACCURACY
-# ============================================================
-
-plt.figure(
-    figsize=(10, 6)
-)
-
-plt.plot(
-    history_df["epoch"],
-    history_df["train_accuracy"],
-    label="Train Accuracy"
-)
-
-plt.plot(
-    history_df["epoch"],
-    history_df["val_accuracy"],
-    label="Validation Accuracy"
-)
-
-plt.xlabel("Epoch")
-
-plt.ylabel("Accuracy")
-
-plt.title(
-    "ViT-B/16 Training and Validation Accuracy"
-)
-
-plt.legend()
-
-plt.grid(True)
-
-plt.tight_layout()
-
-plt.savefig(
-    PLOTS_DIR
-    / "accuracy_curve.png",
-    dpi=300,
-)
-
-plt.close()
-
-
-# ============================================================
-# FINAL OUTPUT
-# ============================================================
-
-print("\n" + "=" * 70)
+print("\n")
+print("=" * 70)
+print("ViT-B/16 512x512 TRAINING COMPLETE")
+print("=" * 70)
 
 print(
-    "VISION TRANSFORMER TRAINING COMPLETE"
+    f"Best Epoch          : "
+    f"{best_epoch}"
 )
 
-print("=" * 70)
+print(
+    f"Best Validation Acc : "
+    f"{best_val_accuracy * 100:.2f}%"
+)
+
+print(
+    f"Best Validation Loss: "
+    f"{best_val_loss:.4f}"
+)
 
 print("\nBest checkpoint:")
 
@@ -1160,33 +1239,32 @@ print(
 print("\nTraining history:")
 
 print(
-    LOG_DIR
+    OUTPUT_DIR
     / "training_history.csv"
-)
-
-print("\nTraining summary:")
-
-print(
-    METRICS_DIR
-    / "training_summary.json"
 )
 
 print("\nPlots:")
 
 print(
     PLOTS_DIR
+    / "loss_curve.png"
 )
 
 print(
-    f"\nBest validation loss: "
-    f"{best_val_loss:.4f}"
+    PLOTS_DIR
+    / "accuracy_curve.png"
+)
+
+print("=" * 70)
+
+print(
+    "\nIMPORTANT: Test-set accuracy was NOT calculated "
+    "during training."
 )
 
 print(
-    f"Best validation accuracy: "
-    f"{best_val_accuracy:.4f}"
+    "The test set will be evaluated separately using "
+    "the best validation checkpoint."
 )
 
-print(
-    "\n✓ ViT-B/16 training finished."
-)
+print("=" * 70)

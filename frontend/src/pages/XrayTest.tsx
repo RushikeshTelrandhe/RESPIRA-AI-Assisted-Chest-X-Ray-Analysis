@@ -29,7 +29,7 @@ import {
 } from "../context/WorkspaceContext";
 import { Alert, LoadingBlock, PageHeader } from "../components/UI";
 import { Disclaimer } from "../components/widgets";
-import { errorText } from "../utils/display";
+
 export function XrayTest() {
   const { token } = useAuth();
   const nav = useNavigate();

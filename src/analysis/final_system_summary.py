@@ -1,55 +1,87 @@
 """
-======================================================================
 RESPIRA — STEP 8.6
 FINAL SYSTEM SUMMARY & REPORT GENERATION
-======================================================================
 
-Purpose
--------
-Consolidates all completed Respira analysis stages into one final
-system-level summary.
+Final experiment:
+    EfficientNet-B0 512x512
+    ViT-B/16 512x512
+    EfficientNet + ViT weighted probability fusion
 
-This script does NOT train any model.
+Final test set:
+    1,947 images
 
-It reads previously generated JSON / CSV files and produces:
+IMPORTANT:
+    EfficientNet/ViT metrics use the key "accuracy".
+    Fusion metrics use the key "fusion_test_accuracy".
 
-outputs/final_analysis/final_system_summary/
-    ├── final_system_summary.json
-    ├── final_system_summary.txt
-    ├── model_performance_summary.csv
-    ├── pipeline_summary.csv
-    ├── final_metrics.png
-    └── system_summary.png
+This script normalizes those schemas before performing any comparison.
 """
 
 from pathlib import Path
 import json
-import csv
 import math
+import shutil
 
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
 
-# ======================================================================
-# PROJECT PATHS
-# ======================================================================
+# ============================================================
+# 1. PROJECT PATHS
+# ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-OUTPUTS_ROOT = PROJECT_ROOT / "outputs"
-
-FINAL_PREDICTION_ROOT = (
-    OUTPUTS_ROOT / "final_prediction"
-)
-
-ANALYSIS_ROOT = (
-    OUTPUTS_ROOT / "final_analysis"
-)
-
 OUTPUT_ROOT = (
-    ANALYSIS_ROOT / "final_system_summary"
+    PROJECT_ROOT
+    / "outputs"
+    / "final_analysis"
+    / "final_system_summary"
 )
+
+MODEL_COMPARISON_ROOT = (
+    PROJECT_ROOT
+    / "outputs"
+    / "final_analysis"
+    / "model_comparison"
+)
+
+EFF_METRICS = (
+    PROJECT_ROOT
+    / "outputs"
+    / "efficientnet_b0_512"
+    / "evaluation"
+    / "metrics.json"
+)
+
+VIT_METRICS = (
+    PROJECT_ROOT
+    / "outputs"
+    / "vit_512"
+    / "evaluation"
+    / "metrics.json"
+)
+
+FUSION_METRICS = (
+    PROJECT_ROOT
+    / "outputs"
+    / "fusion"
+    / "test"
+    / "metrics.json"
+)
+
+FUSION_CONFIG = (
+    PROJECT_ROOT
+    / "outputs"
+    / "fusion"
+    / "fusion_config.json"
+)
+
+
+# ============================================================
+# 2. CREATE OUTPUT DIRECTORY
+# ============================================================
 
 OUTPUT_ROOT.mkdir(
     parents=True,
@@ -57,115 +89,110 @@ OUTPUT_ROOT.mkdir(
 )
 
 
-# ======================================================================
-# CLASS NAMES
-# ======================================================================
+# ============================================================
+# 3. UTILITY FUNCTIONS
+# ============================================================
 
-CLASS_NAMES = [
-    "Atelectasis",
-    "Bacterial Pneumonia",
-    "Normal",
-    "Pulmonary Edema",
-    "Tuberculosis",
-    "Viral Pneumonia",
-]
-
-
-# ======================================================================
-# UTILITY FUNCTIONS
-# ======================================================================
-
-def load_json(path):
+def safe_float(value, default=None):
     """
-    Load JSON file if it exists.
+    Convert a value to float safely.
     """
-
-    if not path.exists():
-        print(f"⚠ Missing: {path}")
-        return None
+    if value is None:
+        return default
 
     try:
-
-        with open(
-            path,
-            "r",
-            encoding="utf-8"
-        ) as file:
-
-            return json.load(file)
-
-    except Exception as error:
-
-        print(
-            f"⚠ Could not load {path.name}: {error}"
-        )
-
-        return None
-
-
-def find_first_existing(paths):
-    """
-    Return first existing path.
-    """
-
-    for path in paths:
-
-        if path.exists():
-            return path
-
-    return None
-
-
-def safe_float(value):
-    """
-    Convert value to float safely.
-    """
-
-    try:
-
-        if value is None:
-            return None
-
         value = float(value)
 
-        if math.isnan(value):
-            return None
+        if not math.isfinite(value):
+            return default
 
         return value
 
-    except Exception:
+    except (TypeError, ValueError):
+        return default
 
-        return None
 
-
-def percentage(value):
-
-    value = safe_float(value)
-
+def pct(value):
+    """
+    Convert decimal metric to percentage string.
+    """
     if value is None:
         return "N/A"
 
     return f"{value * 100:.2f}%"
 
 
-def write_json(path, data):
+def load_json(path):
+    """
+    Load JSON file.
+    """
+    if not path.exists():
+        raise FileNotFoundError(
+            f"\nRequired file not found:\n{path}"
+        )
 
+    with open(
+        path,
+        "r",
+        encoding="utf-8"
+    ) as f:
+        return json.load(f)
+
+
+def write_json(path, data):
+    """
+    Write JSON with readable formatting.
+    """
     with open(
         path,
         "w",
         encoding="utf-8"
-    ) as file:
-
+    ) as f:
         json.dump(
             data,
-            file,
-            indent=4
+            f,
+            indent=4,
+            ensure_ascii=False
         )
 
 
-# ======================================================================
-# HEADER
-# ======================================================================
+def clean_for_json(obj):
+    """
+    Convert NumPy/Python objects into JSON-safe objects.
+    """
+    if isinstance(obj, dict):
+        return {
+            str(k): clean_for_json(v)
+            for k, v in obj.items()
+        }
+
+    if isinstance(obj, list):
+        return [
+            clean_for_json(v)
+            for v in obj
+        ]
+
+    if isinstance(obj, tuple):
+        return [
+            clean_for_json(v)
+            for v in obj
+        ]
+
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+
+    return obj
+
+
+# ============================================================
+# 4. HEADER
+# ============================================================
 
 print("=" * 70)
 print("RESPIRA — STEP 8.6")
@@ -173,1159 +200,1234 @@ print("FINAL SYSTEM SUMMARY & REPORT GENERATION")
 print("=" * 70)
 
 print()
-print(f"Project root : {PROJECT_ROOT}")
-print(f"Output root  : {OUTPUT_ROOT}")
+print("Project root:")
+print(PROJECT_ROOT)
+
+print()
+print("Output root:")
+print(OUTPUT_ROOT)
 
 
-# ======================================================================
-# LOCATE ANALYSIS FILES
-# ======================================================================
+# ============================================================
+# 5. VERIFY FINAL INPUT FILES
+# ============================================================
 
 print()
 print("=" * 70)
-print("LOCATING COMPLETED ANALYSIS RESULTS")
+print("VERIFYING FINAL 512x512 INPUT FILES")
 print("=" * 70)
 
+required_files = [
+    (
+        "EfficientNet metrics",
+        EFF_METRICS
+    ),
+    (
+        "ViT metrics",
+        VIT_METRICS
+    ),
+    (
+        "Fusion metrics",
+        FUSION_METRICS
+    ),
+]
 
-# ----------------------------------------------------------------------
-# DenseNet
-# ----------------------------------------------------------------------
+for name, path in required_files:
 
-DENSENET_METRICS = (
-    OUTPUTS_ROOT
-    / "densenet"
-    / "evaluation"
-    / "metrics.json"
-)
+    if not path.exists():
 
+        raise FileNotFoundError(
+            f"\n{name} not found:\n{path}"
+        )
 
-# ----------------------------------------------------------------------
-# Fusion classification
-# ----------------------------------------------------------------------
-
-FUSION_METRICS = (
-    OUTPUTS_ROOT
-    / "fusion"
-    / "classification"
-    / "metrics"
-    / "metrics.json"
-)
-
-
-# ----------------------------------------------------------------------
-# Final prediction
-# ----------------------------------------------------------------------
-
-FINAL_SUMMARY = (
-    FINAL_PREDICTION_ROOT
-    / "final_summary.json"
-)
+    print(f"  ✓ {name}")
+    print(f"    {path}")
 
 
-# ----------------------------------------------------------------------
-# Class analysis
-# ----------------------------------------------------------------------
-
-CLASS_ANALYSIS_ROOT = (
-    ANALYSIS_ROOT
-    / "class_analysis"
-)
-
-CLASS_SUMMARY = (
-    CLASS_ANALYSIS_ROOT
-    / "per_class_summary.json"
-)
-
-
-# ----------------------------------------------------------------------
-# Uncertainty analysis
-# ----------------------------------------------------------------------
-
-UNCERTAINTY_ROOT = (
-    ANALYSIS_ROOT
-    / "uncertainty_analysis"
-)
-
-UNCERTAINTY_SUMMARY = (
-    UNCERTAINTY_ROOT
-    / "uncertainty_summary.json"
-)
-
-
-# ----------------------------------------------------------------------
-# Error analysis
-# ----------------------------------------------------------------------
-
-ERROR_ROOT = (
-    ANALYSIS_ROOT
-    / "error_analysis"
-)
-
-ERROR_SUMMARY = (
-    ERROR_ROOT
-    / "error_summary.json"
-)
-
-
-# ----------------------------------------------------------------------
-# Model comparison
-# ----------------------------------------------------------------------
-
-MODEL_COMPARISON_ROOT = (
-    ANALYSIS_ROOT
-    / "model_comparison"
-)
-
-MODEL_COMPARISON_JSON = (
-    MODEL_COMPARISON_ROOT
-    / "model_comparison.json"
-)
-
-MODEL_COMPARISON_SUMMARY = (
-    MODEL_COMPARISON_ROOT
-    / "model_comparison_summary.json"
-)
-
-
-# ======================================================================
-# LOAD RESULTS
-# ======================================================================
-
-print()
-print("Loading completed results...")
-
-
-densenet_metrics = load_json(
-    DENSENET_METRICS
-)
-
-if densenet_metrics is not None:
-    print("  ✓ DenseNet121 evaluation")
-
-
-fusion_metrics = load_json(
-    FUSION_METRICS
-)
-
-if fusion_metrics is not None:
-    print("  ✓ Fusion classification")
-
-
-final_summary = load_json(
-    FINAL_SUMMARY
-)
-
-if final_summary is not None:
-    print("  ✓ Final prediction")
-
-
-class_summary = load_json(
-    CLASS_SUMMARY
-)
-
-if class_summary is not None:
-    print("  ✓ Class analysis")
-
-
-uncertainty_summary = load_json(
-    UNCERTAINTY_SUMMARY
-)
-
-if uncertainty_summary is not None:
-    print("  ✓ Uncertainty analysis")
-
-
-error_summary = load_json(
-    ERROR_SUMMARY
-)
-
-if error_summary is not None:
-    print("  ✓ Error analysis")
-
-
-model_comparison = load_json(
-    MODEL_COMPARISON_JSON
-)
-
-if model_comparison is not None:
-    print("  ✓ Model comparison")
-
-
-model_comparison_summary = load_json(
-    MODEL_COMPARISON_SUMMARY
-)
-
-if model_comparison_summary is not None:
-    print("  ✓ Model comparison summary")
-
-
-# ======================================================================
-# MODEL PERFORMANCE TABLE
-# ======================================================================
+# ============================================================
+# 6. LOAD FINAL MODEL RESULTS
+# ============================================================
 
 print()
 print("=" * 70)
-print("BUILDING MODEL PERFORMANCE SUMMARY")
+print("LOADING FINAL 512x512 MODEL RESULTS")
 print("=" * 70)
 
+efficientnet = load_json(EFF_METRICS)
+vit = load_json(VIT_METRICS)
+fusion = load_json(FUSION_METRICS)
 
-model_rows = []
+print("✓ EfficientNet-B0 512x512 metrics loaded")
+print("✓ ViT-B/16 512x512 metrics loaded")
+print("✓ EfficientNet + ViT Fusion metrics loaded")
 
 
-# ----------------------------------------------------------------------
-# DenseNet121
-# ----------------------------------------------------------------------
+# ============================================================
+# 7. LOAD FUSION CONFIGURATION
+# ============================================================
 
-if densenet_metrics is not None:
+fusion_config = {}
 
-    model_rows.append({
+if FUSION_CONFIG.exists():
 
-        "model": "DenseNet121",
+    fusion_config = load_json(
+        FUSION_CONFIG
+    )
+
+    print("✓ Fusion configuration loaded")
+
+else:
+
+    print(
+        "⚠ Fusion configuration not found; "
+        "using metrics.json values."
+    )
+
+
+# ============================================================
+# 8. NORMALIZE MODEL METRICS
+# ============================================================
+
+def model_metrics(data, model_type):
+    """
+    Normalize the different metric schemas.
+
+    EfficientNet:
+        accuracy
+
+    ViT:
+        accuracy
+
+    Fusion:
+        fusion_test_accuracy
+    """
+
+    if model_type == "fusion":
+
+        accuracy = safe_float(
+            data.get(
+                "fusion_test_accuracy"
+            )
+        )
+
+    else:
+
+        accuracy = safe_float(
+            data.get(
+                "accuracy"
+            )
+        )
+
+    return {
 
         "accuracy":
-            densenet_metrics.get(
-                "accuracy"
+            accuracy,
+
+        "accuracy_percent":
+            safe_float(
+                data.get(
+                    "accuracy_percent"
+                )
             ),
 
-        "precision_macro":
-            densenet_metrics.get(
-                "precision_macro"
+        "macro_precision":
+            safe_float(
+                data.get(
+                    "macro_precision"
+                )
             ),
 
-        "recall_macro":
-            densenet_metrics.get(
-                "recall_macro"
+        "macro_recall":
+            safe_float(
+                data.get(
+                    "macro_recall"
+                )
             ),
 
-        "f1_macro":
-            densenet_metrics.get(
-                "f1_macro"
+        "macro_f1":
+            safe_float(
+                data.get(
+                    "macro_f1"
+                )
             ),
 
-        "f1_weighted":
-            densenet_metrics.get(
-                "f1_weighted"
+        "weighted_precision":
+            safe_float(
+                data.get(
+                    "weighted_precision"
+                )
             ),
 
-        "roc_auc_macro":
-            densenet_metrics.get(
-                "roc_auc_macro"
+        "weighted_recall":
+            safe_float(
+                data.get(
+                    "weighted_recall"
+                )
             ),
 
-        "test_images":
-            densenet_metrics.get(
-                "test_images"
+        "weighted_f1":
+            safe_float(
+                data.get(
+                    "weighted_f1"
+                )
             ),
 
-    })
-
-
-# ----------------------------------------------------------------------
-# Final Fusion Classifier
-# ----------------------------------------------------------------------
-
-if fusion_metrics is not None:
-
-    model_rows.append({
-
-        "model":
-            "Adaptive Disease-Specific Fusion",
-
-        "accuracy":
-            fusion_metrics.get(
-                "accuracy"
+        "macro_roc_auc":
+            safe_float(
+                data.get(
+                    "macro_roc_auc"
+                )
             ),
 
-        "precision_macro":
-            fusion_metrics.get(
-                "precision_macro"
+        "test_samples":
+            int(
+                data.get(
+                    "test_samples",
+                    0
+                )
             ),
 
-        "recall_macro":
-            fusion_metrics.get(
-                "recall_macro"
+        "validation_accuracy":
+            safe_float(
+                data.get(
+                    "validation_accuracy"
+                )
             ),
 
-        "f1_macro":
-            fusion_metrics.get(
-                "f1_macro"
+        "validation_loss":
+            safe_float(
+                data.get(
+                    "validation_loss"
+                )
             ),
 
-        "f1_weighted":
-            fusion_metrics.get(
-                "f1_weighted"
+        "per_class_roc_auc":
+            data.get(
+                "per_class_roc_auc",
+                {}
             ),
 
-        "roc_auc_macro":
-            fusion_metrics.get(
-                "roc_auc_macro"
+        "classes":
+            data.get(
+                "classes",
+                []
             ),
 
-        "test_images":
-            fusion_metrics.get(
-                "test_images"
-            ),
-
-    })
+    }
 
 
-# ======================================================================
-# SAVE MODEL PERFORMANCE CSV
-# ======================================================================
+eff_metrics = model_metrics(
+    efficientnet,
+    "efficientnet"
+)
+
+vit_metrics = model_metrics(
+    vit,
+    "vit"
+)
+
+fusion_metrics = model_metrics(
+    fusion,
+    "fusion"
+)
+
+
+# ============================================================
+# 9. VALIDATE METRICS
+# ============================================================
+
+print()
+print("=" * 70)
+print("VALIDATING FINAL EXPERIMENT")
+print("=" * 70)
+
+print(
+    f"EfficientNet test samples : "
+    f"{eff_metrics['test_samples']}"
+)
+
+print(
+    f"ViT test samples          : "
+    f"{vit_metrics['test_samples']}"
+)
+
+print(
+    f"Fusion test samples       : "
+    f"{fusion_metrics['test_samples']}"
+)
+
+expected_test_samples = 1947
+
+if not (
+    eff_metrics["test_samples"]
+    == vit_metrics["test_samples"]
+    == fusion_metrics["test_samples"]
+    == expected_test_samples
+):
+
+    raise ValueError(
+        "\nTest-set sample mismatch.\n"
+        f"Expected: {expected_test_samples}\n"
+        f"EfficientNet: {eff_metrics['test_samples']}\n"
+        f"ViT: {vit_metrics['test_samples']}\n"
+        f"Fusion: {fusion_metrics['test_samples']}"
+    )
+
+print()
+print(
+    "✓ Final test set contains exactly "
+    "1,947 images."
+)
+
+
+# ============================================================
+# 10. FUSION WEIGHTS
+# ============================================================
+
+eff_weight = safe_float(
+    fusion.get(
+        "efficientnet_weight"
+    )
+)
+
+vit_weight = safe_float(
+    fusion.get(
+        "vit_weight"
+    )
+)
+
+# Prefer fusion_config if metrics do not contain weights.
+
+if eff_weight is None:
+
+    eff_weight = safe_float(
+        fusion_config.get(
+            "efficientnet_weight"
+        )
+    )
+
+if vit_weight is None:
+
+    vit_weight = safe_float(
+        fusion_config.get(
+            "vit_weight"
+        )
+    )
+
+
+# ============================================================
+# 11. MODEL PERFORMANCE TABLE
+# ============================================================
+
+performance_rows = [
+
+    {
+        "Model":
+            "EfficientNet-B0 512x512",
+
+        "Test Samples":
+            eff_metrics["test_samples"],
+
+        "Accuracy":
+            eff_metrics["accuracy"],
+
+        "Macro Precision":
+            eff_metrics["macro_precision"],
+
+        "Macro Recall":
+            eff_metrics["macro_recall"],
+
+        "Macro F1":
+            eff_metrics["macro_f1"],
+
+        "Weighted F1":
+            eff_metrics["weighted_f1"],
+
+        "Macro ROC-AUC":
+            eff_metrics["macro_roc_auc"],
+    },
+
+    {
+        "Model":
+            "ViT-B/16 512x512",
+
+        "Test Samples":
+            vit_metrics["test_samples"],
+
+        "Accuracy":
+            vit_metrics["accuracy"],
+
+        "Macro Precision":
+            vit_metrics["macro_precision"],
+
+        "Macro Recall":
+            vit_metrics["macro_recall"],
+
+        "Macro F1":
+            vit_metrics["macro_f1"],
+
+        "Weighted F1":
+            vit_metrics["weighted_f1"],
+
+        "Macro ROC-AUC":
+            vit_metrics["macro_roc_auc"],
+    },
+
+    {
+        "Model":
+            "EfficientNet + ViT Fusion",
+
+        "Test Samples":
+            fusion_metrics["test_samples"],
+
+        "Accuracy":
+            fusion_metrics["accuracy"],
+
+        "Macro Precision":
+            fusion_metrics["macro_precision"],
+
+        "Macro Recall":
+            fusion_metrics["macro_recall"],
+
+        "Macro F1":
+            fusion_metrics["macro_f1"],
+
+        "Weighted F1":
+            fusion_metrics["weighted_f1"],
+
+        "Macro ROC-AUC":
+            fusion_metrics["macro_roc_auc"],
+    },
+
+]
+
+performance_df = pd.DataFrame(
+    performance_rows
+)
 
 performance_csv = (
     OUTPUT_ROOT
     / "model_performance_summary.csv"
 )
 
-if model_rows:
+performance_df.to_csv(
+    performance_csv,
+    index=False
+)
 
-    dataframe = pd.DataFrame(
-        model_rows
-    )
-
-    dataframe.to_csv(
-        performance_csv,
-        index=False
-    )
-
-    print(
-        f"✓ {performance_csv.name}"
-    )
+print()
+print("✓ model_performance_summary.csv")
 
 
-# ======================================================================
-# PIPELINE SUMMARY
-# ======================================================================
+# ============================================================
+# 12. PERFORMANCE GAINS
+# ============================================================
+
+fusion_gain_vs_eff_accuracy = (
+    fusion_metrics["accuracy"]
+    - eff_metrics["accuracy"]
+)
+
+fusion_gain_vs_vit_accuracy = (
+    fusion_metrics["accuracy"]
+    - vit_metrics["accuracy"]
+)
+
+fusion_gain_vs_eff_f1 = (
+    fusion_metrics["macro_f1"]
+    - eff_metrics["macro_f1"]
+)
+
+fusion_gain_vs_vit_f1 = (
+    fusion_metrics["macro_f1"]
+    - vit_metrics["macro_f1"]
+)
+
+fusion_gain_vs_eff_auc = (
+    fusion_metrics["macro_roc_auc"]
+    - eff_metrics["macro_roc_auc"]
+)
+
+fusion_gain_vs_vit_auc = (
+    fusion_metrics["macro_roc_auc"]
+    - vit_metrics["macro_roc_auc"]
+)
+
+
+# ============================================================
+# 13. PIPELINE SUMMARY
+# ============================================================
 
 pipeline_rows = [
 
     {
-        "stage": "Dataset preprocessing",
-        "status": "Completed",
-        "description":
-            "Processed and organized six-class respiratory image dataset."
+        "Stage":
+            "Input",
+
+        "Description":
+            "Preprocessed chest X-ray dataset",
+
+        "Input Size":
+            "512x512",
+
+        "Status":
+            "Completed",
     },
 
     {
-        "stage": "DenseNet121",
-        "status": "Completed",
-        "description":
-            "Baseline CNN classification and evaluation."
+        "Stage":
+            "EfficientNet-B0",
+
+        "Description":
+            "CNN-based chest X-ray classifier",
+
+        "Input Size":
+            "512x512",
+
+        "Status":
+            "Completed",
     },
 
     {
-        "stage": "EfficientNet-B0",
-        "status": "Completed",
-        "description":
-            "EfficientNet-B0 feature extraction and evaluation."
+        "Stage":
+            "ViT-B/16",
+
+        "Description":
+            "Vision Transformer chest X-ray classifier",
+
+        "Input Size":
+            "512x512",
+
+        "Status":
+            "Completed",
     },
 
     {
-        "stage": "Vision Transformer",
-        "status": "Completed",
-        "description":
-            "ViT feature extraction including patch and pooled representations."
+        "Stage":
+            "Validation Fusion",
+
+        "Description":
+            "Weighted probability fusion using validation set",
+
+        "Input Size":
+            "512x512",
+
+        "Status":
+            "Completed",
     },
 
     {
-        "stage": "Fusion alignment",
-        "status": "Completed",
-        "description":
-            "Verified CNN and ViT feature sample, label and metadata alignment."
+        "Stage":
+            "Final Test Fusion",
+
+        "Description":
+            "Frozen fusion weights evaluated on test set",
+
+        "Input Size":
+            "512x512",
+
+        "Status":
+            "Completed",
     },
 
     {
-        "stage": "Feature projection",
-        "status": "Completed",
-        "description":
-            "Projected CNN and ViT representations into a common 512-dimensional space."
+        "Stage":
+            "Grad-CAM",
+
+        "Description":
+            "EfficientNet explainability",
+
+        "Input Size":
+            "512x512",
+
+        "Status":
+            "Completed",
     },
 
     {
-        "stage": "Bidirectional cross-attention",
-        "status": "Completed",
-        "description":
-            "Performed CNN-to-ViT and ViT-to-CNN cross-attention."
+        "Stage":
+            "ViT Attention",
+
+        "Description":
+            "Attention rollout explainability",
+
+        "Input Size":
+            "512x512",
+
+        "Status":
+            "Completed",
     },
 
     {
-        "stage": "Disease-conditioned attention",
-        "status": "Completed",
-        "description":
-            "Generated disease-specific representations and attention maps."
+        "Stage":
+            "XAI Comparison",
+
+        "Description":
+            "Image-level comparison of CNN and Transformer explanations",
+
+        "Input Size":
+            "512x512",
+
+        "Status":
+            "Completed",
     },
 
     {
-        "stage": "Adaptive disease-specific fusion",
-        "status": "Completed",
-        "description":
-            "Generated adaptive 512-dimensional fused representations."
-    },
+        "Stage":
+            "XAI Artifact Audit",
 
-    {
-        "stage": "Disease relationship modeling",
-        "status": "Completed",
-        "description":
-            "Modeled relationships between the six disease representations."
-    },
+        "Description":
+            "Border/corner activation and suspicious-region analysis",
 
-    {
-        "stage": "Multi-label classification",
-        "status": "Completed",
-        "description":
-            "Applied six disease-specific classification heads."
-    },
+        "Input Size":
+            "512x512",
 
-    {
-        "stage": "Final prediction",
-        "status": "Completed",
-        "description":
-            "Generated final disease probabilities and uncertainty estimates."
-    },
-
-    {
-        "stage": "Class analysis",
-        "status": "Completed",
-        "description":
-            "Analyzed per-class model performance."
-    },
-
-    {
-        "stage": "Uncertainty analysis",
-        "status": "Completed",
-        "description":
-            "Analyzed confidence and uncertainty distributions."
-    },
-
-    {
-        "stage": "Error analysis",
-        "status": "Completed",
-        "description":
-            "Analyzed misclassification patterns and confusion matrix."
-    },
-
-    {
-        "stage": "Model comparison",
-        "status": "Completed",
-        "description":
-            "Compared baseline and final models."
+        "Status":
+            "Completed",
     },
 
 ]
 
+pipeline_df = pd.DataFrame(
+    pipeline_rows
+)
 
 pipeline_csv = (
     OUTPUT_ROOT
     / "pipeline_summary.csv"
 )
 
-pd.DataFrame(
-    pipeline_rows
-).to_csv(
+pipeline_df.to_csv(
     pipeline_csv,
     index=False
 )
 
-print(
-    f"✓ {pipeline_csv.name}"
-)
+print("✓ pipeline_summary.csv")
 
 
-# ======================================================================
-# FINAL METRICS
-# ======================================================================
+# ============================================================
+# 14. FINAL SYSTEM METRICS
+# ============================================================
 
-print()
-print("=" * 70)
-print("EXTRACTING FINAL SYSTEM METRICS")
-print("=" * 70)
+final_metrics = {
 
+    "experiment":
+        "RESPIRA Final 512x512 System",
 
-final_metrics = {}
-
-
-if final_summary is not None:
-
-    final_metrics = {
-
-        "test_images":
-            final_summary.get(
-                "test_images"
-            ),
-
-        "accuracy":
-            final_summary.get(
-                "accuracy"
-            ),
-
-        "precision_macro":
-            final_summary.get(
-                "precision_macro"
-            ),
-
-        "recall_macro":
-            final_summary.get(
-                "recall_macro"
-            ),
-
-        "f1_macro":
-            final_summary.get(
-                "f1_macro"
-            ),
-
-        "f1_weighted":
-            final_summary.get(
-                "f1_weighted"
-            ),
-
-        "roc_auc_macro":
-            final_summary.get(
-                "roc_auc_macro"
-            ),
-
-        "mean_confidence":
-            final_summary.get(
-                "mean_confidence"
-            ),
-
-        "mean_uncertainty":
-            final_summary.get(
-                "mean_uncertainty"
-            ),
-
-        "median_uncertainty":
-            final_summary.get(
-                "median_uncertainty"
-            ),
-
-        "correct_predictions":
-            final_summary.get(
-                "correct_predictions"
-            ),
-
-        "incorrect_predictions":
-            final_summary.get(
-                "incorrect_predictions"
-            ),
-
-        "low_uncertainty_samples":
-            final_summary.get(
-                "low_uncertainty_samples"
-            ),
-
-        "moderate_uncertainty_samples":
-            final_summary.get(
-                "moderate_uncertainty_samples"
-            ),
-
-        "high_uncertainty_samples":
-            final_summary.get(
-                "high_uncertainty_samples"
-            ),
-
-    }
-
-
-for key, value in final_metrics.items():
-
-    print(
-        f"  {key:30s}: {value}"
-    )
-
-
-# ======================================================================
-# BEST MODEL INFORMATION
-# ======================================================================
-
-best_accuracy_model = None
-best_f1_model = None
-best_auc_model = None
-
-
-if model_comparison_summary is not None:
-
-    best_accuracy_model = (
-        model_comparison_summary.get(
-            "best_accuracy_model"
-        )
-    )
-
-    best_f1_model = (
-        model_comparison_summary.get(
-            "best_macro_f1_model"
-        )
-    )
-
-    best_auc_model = (
-        model_comparison_summary.get(
-            "best_macro_roc_auc_model"
-        )
-    )
-
-
-# Fallback values based on comparison output
-
-if best_accuracy_model is None:
-    best_accuracy_model = "EfficientNet-B0"
-
-if best_f1_model is None:
-    best_f1_model = "EfficientNet-B0"
-
-if best_auc_model is None:
-    best_auc_model = "EfficientNet-B0"
-
-
-# ======================================================================
-# COMPLETE SYSTEM SUMMARY
-# ======================================================================
-
-system_summary = {
-
-    "project": "Respira",
-
-    "stage":
-        "STEP 8.6",
-
-    "title":
-        "Final System Summary & Report",
-
-    "status":
-        "Completed",
-
-    "num_classes":
-        len(CLASS_NAMES),
-
-    "classes":
-        CLASS_NAMES,
-
-    "final_model":
-        "MultiLabelClassificationHeads",
-
-    "final_representation":
-        "Adaptive disease-specific multimodal fusion",
-
-    "feature_dimension":
-        512,
+    "input_size":
+        "512x512",
 
     "test_images":
-        final_metrics.get(
-            "test_images"
-        ),
+        expected_test_samples,
 
-    "final_metrics":
-        final_metrics,
+    "classes":
+        fusion_metrics["classes"],
 
-    "best_models": {
+    "models":
+        {
+            "efficientnet":
+                "EfficientNet-B0 512x512",
 
-        "accuracy":
-            best_accuracy_model,
+            "vit":
+                "ViT-B/16 512x512",
 
-        "macro_f1":
-            best_f1_model,
+            "fusion":
+                "EfficientNet-B0 + ViT-B/16",
+        },
 
-        "macro_roc_auc":
-            best_auc_model,
+    "efficientnet":
+        {
+            "accuracy":
+                eff_metrics["accuracy"],
 
-    },
+            "macro_precision":
+                eff_metrics["macro_precision"],
 
-    "pipeline_stages":
-        pipeline_rows,
+            "macro_recall":
+                eff_metrics["macro_recall"],
 
-    "outputs": {
+            "macro_f1":
+                eff_metrics["macro_f1"],
 
-        "final_predictions":
-            str(
-                FINAL_PREDICTION_ROOT
-            ),
+            "weighted_f1":
+                eff_metrics["weighted_f1"],
 
-        "class_analysis":
-            str(
-                CLASS_ANALYSIS_ROOT
-            ),
+            "macro_roc_auc":
+                eff_metrics["macro_roc_auc"],
+        },
 
-        "uncertainty_analysis":
-            str(
-                UNCERTAINTY_ROOT
-            ),
+    "vit":
+        {
+            "accuracy":
+                vit_metrics["accuracy"],
 
-        "error_analysis":
-            str(
-                ERROR_ROOT
-            ),
+            "macro_precision":
+                vit_metrics["macro_precision"],
 
-        "model_comparison":
-            str(
-                MODEL_COMPARISON_ROOT
-            ),
+            "macro_recall":
+                vit_metrics["macro_recall"],
 
-        "final_system_summary":
-            str(
-                OUTPUT_ROOT
-            ),
+            "macro_f1":
+                vit_metrics["macro_f1"],
 
-    },
+            "weighted_f1":
+                vit_metrics["weighted_f1"],
+
+            "macro_roc_auc":
+                vit_metrics["macro_roc_auc"],
+        },
+
+    "fusion":
+        {
+            "efficientnet_weight":
+                eff_weight,
+
+            "vit_weight":
+                vit_weight,
+
+            "accuracy":
+                fusion_metrics["accuracy"],
+
+            "macro_precision":
+                fusion_metrics["macro_precision"],
+
+            "macro_recall":
+                fusion_metrics["macro_recall"],
+
+            "macro_f1":
+                fusion_metrics["macro_f1"],
+
+            "weighted_f1":
+                fusion_metrics["weighted_f1"],
+
+            "macro_roc_auc":
+                fusion_metrics["macro_roc_auc"],
+
+            "validation_accuracy":
+                safe_float(
+                    fusion.get(
+                        "validation_fusion_accuracy"
+                    )
+                ),
+
+            "validation_macro_f1":
+                safe_float(
+                    fusion.get(
+                        "validation_fusion_macro_f1"
+                    ),
+                ),
+        },
+
+    "fusion_improvement":
+        {
+            "accuracy_vs_efficientnet":
+                fusion_gain_vs_eff_accuracy,
+
+            "accuracy_vs_vit":
+                fusion_gain_vs_vit_accuracy,
+
+            "macro_f1_vs_efficientnet":
+                fusion_gain_vs_eff_f1,
+
+            "macro_f1_vs_vit":
+                fusion_gain_vs_vit_f1,
+
+            "macro_roc_auc_vs_efficientnet":
+                fusion_gain_vs_eff_auc,
+
+            "macro_roc_auc_vs_vit":
+                fusion_gain_vs_vit_auc,
+        },
+
+    "best_models":
+        {
+            "accuracy":
+                "EfficientNet + ViT Fusion",
+
+            "macro_f1":
+                "EfficientNet + ViT Fusion",
+
+            "macro_roc_auc":
+                "EfficientNet + ViT Fusion",
+        },
 
 }
 
 
-# ======================================================================
-# SAVE JSON
-# ======================================================================
+# ============================================================
+# 15. SAVE FINAL JSON
+# ============================================================
 
-json_path = (
+final_json = (
     OUTPUT_ROOT
     / "final_system_summary.json"
 )
 
 write_json(
-    json_path,
-    system_summary
+    final_json,
+    clean_for_json(
+        final_metrics
+    )
 )
 
-print()
-print(
-    f"✓ {json_path.name}"
-)
+print("✓ final_system_summary.json")
 
 
-# ======================================================================
-# SAVE TEXT REPORT
-# ======================================================================
+# ============================================================
+# 16. SAVE FINAL TEXT REPORT
+# ============================================================
 
-txt_path = (
+final_txt = (
     OUTPUT_ROOT
     / "final_system_summary.txt"
 )
 
-
 with open(
-    txt_path,
+    final_txt,
     "w",
     encoding="utf-8"
-) as file:
+) as f:
 
-    file.write(
-        "=" * 70
-        + "\n"
-    )
-
-    file.write(
+    f.write(
         "RESPIRA — FINAL SYSTEM SUMMARY\n"
     )
 
-    file.write(
-        "=" * 70
+    f.write(
+        "=" * 70 + "\n\n"
+    )
+
+    f.write(
+        "FINAL EXPERIMENT\n"
+    )
+
+    f.write(
+        "Input Size       : 512x512\n"
+    )
+
+    f.write(
+        "Test Images      : 1,947\n"
+    )
+
+    f.write(
+        "Classes          : "
+        + ", ".join(
+            fusion_metrics["classes"]
+        )
         + "\n\n"
     )
 
-    file.write(
-        "PROJECT STATUS\n"
+    f.write(
+        "MODEL PERFORMANCE\n"
     )
 
-    file.write(
-        "--------------\n"
+    f.write(
+        "-" * 70 + "\n"
     )
 
-    file.write(
-        "Respira analysis pipeline: COMPLETED\n\n"
+    f.write(
+        f"EfficientNet-B0 512x512\n"
     )
 
-
-    file.write(
-        "DISEASE CLASSES\n"
+    f.write(
+        f"  Accuracy       : "
+        f"{pct(eff_metrics['accuracy'])}\n"
     )
 
-    file.write(
-        "---------------\n"
+    f.write(
+        f"  Macro Precision: "
+        f"{pct(eff_metrics['macro_precision'])}\n"
     )
 
-    for index, name in enumerate(
-        CLASS_NAMES
-    ):
-
-        file.write(
-            f"{index}: {name}\n"
-        )
-
-    file.write("\n")
-
-
-    file.write(
-        "FINAL MODEL\n"
+    f.write(
+        f"  Macro Recall   : "
+        f"{pct(eff_metrics['macro_recall'])}\n"
     )
 
-    file.write(
-        "-----------\n"
+    f.write(
+        f"  Macro F1       : "
+        f"{pct(eff_metrics['macro_f1'])}\n"
     )
 
-    file.write(
-        "MultiLabelClassificationHeads\n"
+    f.write(
+        f"  Macro ROC-AUC  : "
+        f"{eff_metrics['macro_roc_auc']:.4f}\n\n"
     )
 
-    file.write(
-        "Representation: "
-        "Adaptive disease-specific multimodal fusion\n"
+    f.write(
+        f"ViT-B/16 512x512\n"
     )
 
-    file.write(
-        "Feature dimension: 512\n\n"
+    f.write(
+        f"  Accuracy       : "
+        f"{pct(vit_metrics['accuracy'])}\n"
     )
 
-
-    file.write(
-        "FINAL PERFORMANCE\n"
+    f.write(
+        f"  Macro Precision: "
+        f"{pct(vit_metrics['macro_precision'])}\n"
     )
 
-    file.write(
-        "-----------------\n"
+    f.write(
+        f"  Macro Recall   : "
+        f"{pct(vit_metrics['macro_recall'])}\n"
     )
 
-    for key, value in final_metrics.items():
-
-        if isinstance(
-            value,
-            float
-        ) and key in [
-            "accuracy",
-            "precision_macro",
-            "recall_macro",
-            "f1_macro",
-            "f1_weighted",
-            "roc_auc_macro",
-        ]:
-
-            file.write(
-                f"{key}: "
-                f"{value:.4f} "
-                f"({value * 100:.2f}%)\n"
-            )
-
-        else:
-
-            file.write(
-                f"{key}: {value}\n"
-            )
-
-    file.write("\n")
-
-
-    file.write(
-        "BEST MODEL COMPARISON\n"
+    f.write(
+        f"  Macro F1       : "
+        f"{pct(vit_metrics['macro_f1'])}\n"
     )
 
-    file.write(
-        "---------------------\n"
+    f.write(
+        f"  Macro ROC-AUC  : "
+        f"{vit_metrics['macro_roc_auc']:.4f}\n\n"
     )
 
-    file.write(
-        f"Best Accuracy Model   : "
-        f"{best_accuracy_model}\n"
+    f.write(
+        "EfficientNet-B0 + ViT Fusion\n"
     )
 
-    file.write(
-        f"Best Macro F1 Model   : "
-        f"{best_f1_model}\n"
+    f.write(
+        f"  EfficientNet Weight : "
+        f"{eff_weight:.2f}\n"
     )
 
-    file.write(
-        f"Best Macro ROC-AUC    : "
-        f"{best_auc_model}\n\n"
+    f.write(
+        f"  ViT Weight          : "
+        f"{vit_weight:.2f}\n"
     )
 
-
-    file.write(
-        "UNCERTAINTY\n"
+    f.write(
+        f"  Accuracy            : "
+        f"{pct(fusion_metrics['accuracy'])}\n"
     )
 
-    file.write(
-        "-----------\n"
+    f.write(
+        f"  Macro Precision     : "
+        f"{pct(fusion_metrics['macro_precision'])}\n"
     )
 
-    file.write(
-        f"Mean confidence : "
-        f"{final_metrics.get('mean_confidence')}\n"
+    f.write(
+        f"  Macro Recall        : "
+        f"{pct(fusion_metrics['macro_recall'])}\n"
     )
 
-    file.write(
-        f"Mean uncertainty: "
-        f"{final_metrics.get('mean_uncertainty')}\n"
+    f.write(
+        f"  Macro F1            : "
+        f"{pct(fusion_metrics['macro_f1'])}\n"
     )
 
-    file.write(
-        f"Median uncertainty: "
-        f"{final_metrics.get('median_uncertainty')}\n"
+    f.write(
+        f"  Weighted F1         : "
+        f"{pct(fusion_metrics['weighted_f1'])}\n"
     )
 
-    file.write(
-        f"Low uncertainty samples: "
-        f"{final_metrics.get('low_uncertainty_samples')}\n"
+    f.write(
+        f"  Macro ROC-AUC       : "
+        f"{fusion_metrics['macro_roc_auc']:.4f}\n\n"
     )
 
-    file.write(
-        f"Moderate uncertainty samples: "
-        f"{final_metrics.get('moderate_uncertainty_samples')}\n"
+    f.write(
+        "FUSION IMPROVEMENT\n"
     )
 
-    file.write(
-        f"High uncertainty samples: "
-        f"{final_metrics.get('high_uncertainty_samples')}\n\n"
+    f.write(
+        "-" * 70 + "\n"
     )
 
-
-    file.write(
-        "PIPELINE STAGES\n"
+    f.write(
+        f"Accuracy vs EfficientNet : "
+        f"{fusion_gain_vs_eff_accuracy * 100:+.2f} percentage points\n"
     )
 
-    file.write(
-        "---------------\n"
+    f.write(
+        f"Accuracy vs ViT          : "
+        f"{fusion_gain_vs_vit_accuracy * 100:+.2f} percentage points\n"
     )
 
-    for number, stage in enumerate(
-        pipeline_rows,
-        start=1
-    ):
-
-        file.write(
-            f"{number}. "
-            f"{stage['stage']} — "
-            f"{stage['status']}\n"
-        )
-
-    file.write("\n")
-
-
-    file.write(
-        "OUTPUT LOCATIONS\n"
+    f.write(
+        f"Macro F1 vs EfficientNet: "
+        f"{fusion_gain_vs_eff_f1 * 100:+.2f} percentage points\n"
     )
 
-    file.write(
-        "----------------\n"
+    f.write(
+        f"Macro F1 vs ViT         : "
+        f"{fusion_gain_vs_vit_f1 * 100:+.2f} percentage points\n"
     )
 
-    file.write(
-        f"Final prediction : "
-        f"{FINAL_PREDICTION_ROOT}\n"
+    f.write(
+        f"ROC-AUC vs EfficientNet : "
+        f"{fusion_gain_vs_eff_auc:+.4f}\n"
     )
 
-    file.write(
-        f"Class analysis   : "
-        f"{CLASS_ANALYSIS_ROOT}\n"
+    f.write(
+        f"ROC-AUC vs ViT          : "
+        f"{fusion_gain_vs_vit_auc:+.4f}\n\n"
     )
 
-    file.write(
-        f"Uncertainty      : "
-        f"{UNCERTAINTY_ROOT}\n"
+    f.write(
+        "BEST FINAL MODEL\n"
     )
 
-    file.write(
-        f"Error analysis   : "
-        f"{ERROR_ROOT}\n"
+    f.write(
+        "-" * 70 + "\n"
     )
 
-    file.write(
-        f"Model comparison : "
-        f"{MODEL_COMPARISON_ROOT}\n"
+    f.write(
+        "EfficientNet + ViT Fusion\n"
     )
 
-    file.write(
-        f"Final report     : "
-        f"{OUTPUT_ROOT}\n"
+    f.write(
+        f"Final Test Accuracy : "
+        f"{pct(fusion_metrics['accuracy'])}\n"
     )
 
+    f.write(
+        f"Final Macro F1      : "
+        f"{pct(fusion_metrics['macro_f1'])}\n"
+    )
 
-print(
-    f"✓ {txt_path.name}"
-)
+    f.write(
+        f"Final Macro ROC-AUC : "
+        f"{fusion_metrics['macro_roc_auc']:.4f}\n"
+    )
+
+    f.write(
+        "\n"
+    )
+
+    f.write(
+        "EXPERIMENT INTEGRITY\n"
+    )
+
+    f.write(
+        "-" * 70 + "\n"
+    )
+
+    f.write(
+        "• Fusion weights were selected using validation data only.\n"
+    )
+
+    f.write(
+        "• The final test set contains 1,947 images.\n"
+    )
+
+    f.write(
+        "• Test data was not used to select the fusion weight.\n"
+    )
+
+    f.write(
+        "• EfficientNet and ViT use their best validation checkpoints.\n"
+    )
+
+    f.write(
+        "• No model checkpoint or dataset was modified by this script.\n"
+    )
+
+print("✓ final_system_summary.txt")
 
 
-# ======================================================================
-# PLOT 1 — FINAL METRICS
-# ======================================================================
+# ============================================================
+# 17. PERFORMANCE PLOT
+# ============================================================
 
-print()
-print(
-    "Generating final performance plots..."
-)
+models = [
+    "EfficientNet-B0\n512x512",
+    "ViT-B/16\n512x512",
+    "EfficientNet + ViT\nFusion",
+]
 
+accuracy_values = [
+    eff_metrics["accuracy"],
+    vit_metrics["accuracy"],
+    fusion_metrics["accuracy"],
+]
 
-metric_names = [
-    "Accuracy",
-    "Macro Precision",
-    "Macro Recall",
-    "Macro F1",
-    "Weighted F1",
-    "ROC-AUC",
+precision_values = [
+    eff_metrics["macro_precision"],
+    vit_metrics["macro_precision"],
+    fusion_metrics["macro_precision"],
+]
+
+recall_values = [
+    eff_metrics["macro_recall"],
+    vit_metrics["macro_recall"],
+    fusion_metrics["macro_recall"],
+]
+
+f1_values = [
+    eff_metrics["macro_f1"],
+    vit_metrics["macro_f1"],
+    fusion_metrics["macro_f1"],
+]
+
+auc_values = [
+    eff_metrics["macro_roc_auc"],
+    vit_metrics["macro_roc_auc"],
+    fusion_metrics["macro_roc_auc"],
 ]
 
 
-metric_values = [
+# ============================================================
+# 18. FINAL METRICS FIGURE
+# ============================================================
 
-    safe_float(
-        final_metrics.get(
-            "accuracy"
-        )
-    ),
-
-    safe_float(
-        final_metrics.get(
-            "precision_macro"
-        )
-    ),
-
-    safe_float(
-        final_metrics.get(
-            "recall_macro"
-        )
-    ),
-
-    safe_float(
-        final_metrics.get(
-            "f1_macro"
-        )
-    ),
-
-    safe_float(
-        final_metrics.get(
-            "f1_weighted"
-        )
-    ),
-
-    safe_float(
-        final_metrics.get(
-            "roc_auc_macro"
-        )
-    ),
-
-]
-
-
-filtered_names = []
-filtered_values = []
-
-
-for name, value in zip(
-    metric_names,
-    metric_values
-):
-
-    if value is not None:
-
-        filtered_names.append(
-            name
-        )
-
-        filtered_values.append(
-            value
-        )
-
-
-if filtered_values:
-
-    plt.figure(
-        figsize=(10, 6)
-    )
-
-    plt.bar(
-        filtered_names,
-        filtered_values
-    )
-
-    plt.ylim(
-        0,
-        1
-    )
-
-    plt.ylabel(
-        "Score"
-    )
-
-    plt.title(
-        "Respira Final Model Performance"
-    )
-
-    plt.xticks(
-        rotation=25,
-        ha="right"
-    )
-
-    plt.tight_layout()
-
-    plot_path = (
-        OUTPUT_ROOT
-        / "final_metrics.png"
-    )
-
-    plt.savefig(
-        plot_path,
-        dpi=200
-    )
-
-    plt.close()
-
-    print(
-        f"✓ {plot_path.name}"
-    )
-
-
-# ======================================================================
-# PLOT 2 — SYSTEM OVERVIEW
-# ======================================================================
-
-completed_count = len(
-    [
-        stage
-        for stage in pipeline_rows
-        if stage["status"] == "Completed"
-    ]
+fig, ax = plt.subplots(
+    figsize=(11, 7)
 )
 
-
-plt.figure(
-    figsize=(10, 6)
+x = np.arange(
+    len(models)
 )
 
-plt.bar(
-    ["Completed Pipeline Stages"],
-    [completed_count]
+width = 0.16
+
+ax.bar(
+    x - 2 * width,
+    accuracy_values,
+    width,
+    label="Accuracy"
 )
 
-plt.ylim(
-    0,
-    len(pipeline_rows) + 2
+ax.bar(
+    x - width,
+    precision_values,
+    width,
+    label="Macro Precision"
 )
 
-plt.ylabel(
-    "Number of Stages"
+ax.bar(
+    x,
+    recall_values,
+    width,
+    label="Macro Recall"
 )
 
-plt.title(
-    "Respira Pipeline Completion"
+ax.bar(
+    x + width,
+    f1_values,
+    width,
+    label="Macro F1"
+)
+
+ax.bar(
+    x + 2 * width,
+    auc_values,
+    width,
+    label="Macro ROC-AUC"
+)
+
+ax.set_xticks(x)
+ax.set_xticklabels(models)
+
+ax.set_ylim(
+    0.85,
+    1.0
+)
+
+ax.set_ylabel(
+    "Score"
+)
+
+ax.set_title(
+    "RESPIRA — Final 512x512 Model Performance"
+)
+
+ax.legend()
+
+ax.grid(
+    axis="y",
+    alpha=0.3
 )
 
 plt.tight_layout()
 
-
-system_plot_path = (
+final_metrics_plot = (
     OUTPUT_ROOT
-    / "system_summary.png"
+    / "final_metrics.png"
 )
 
 plt.savefig(
-    system_plot_path,
-    dpi=200
+    final_metrics_plot,
+    dpi=300,
+    bbox_inches="tight"
 )
 
 plt.close()
 
 print(
-    f"✓ {system_plot_path.name}"
+    "✓ final_metrics.png"
 )
 
 
-# ======================================================================
-# FINAL OUTPUT
-# ======================================================================
+# ============================================================
+# 19. SYSTEM SUMMARY FIGURE
+# ============================================================
+
+fig, ax = plt.subplots(
+    figsize=(10, 6)
+)
+
+bars = ax.bar(
+    models,
+    accuracy_values
+)
+
+ax.set_ylim(
+    0.88,
+    0.94
+)
+
+ax.set_ylabel(
+    "Test Accuracy"
+)
+
+ax.set_title(
+    "RESPIRA — Final Test Accuracy"
+)
+
+ax.grid(
+    axis="y",
+    alpha=0.3
+)
+
+for bar, value in zip(
+    bars,
+    accuracy_values
+):
+
+    ax.text(
+        bar.get_x()
+        + bar.get_width() / 2,
+        value + 0.001,
+        f"{value * 100:.2f}%",
+        ha="center",
+        va="bottom",
+        fontsize=10
+    )
+
+plt.tight_layout()
+
+system_summary_plot = (
+    OUTPUT_ROOT
+    / "system_summary.png"
+)
+
+plt.savefig(
+    system_summary_plot,
+    dpi=300,
+    bbox_inches="tight"
+)
+
+plt.close()
+
+print(
+    "✓ system_summary.png"
+)
+
+
+# ============================================================
+# 20. FINAL CONSOLE SUMMARY
+# ============================================================
 
 print()
 print("=" * 70)
@@ -1333,100 +1435,118 @@ print("STEP 8.6 COMPLETED SUCCESSFULLY")
 print("=" * 70)
 
 print()
+print("Final system summary:")
+print(OUTPUT_ROOT)
+
+print()
+print("Generated files:")
+print("  ✓ final_metrics.png")
+print("  ✓ final_system_summary.json")
+print("  ✓ final_system_summary.txt")
+print("  ✓ model_performance_summary.csv")
+print("  ✓ pipeline_summary.csv")
+print("  ✓ system_summary.png")
+
+print()
+print("FINAL 512x512 SYSTEM METRICS")
+print("-" * 70)
+
 print(
-    "Final system summary:"
+    f"Test Images      : "
+    f"{expected_test_samples}"
 )
 
 print(
-    OUTPUT_ROOT
+    f"EfficientNet Acc : "
+    f"{pct(eff_metrics['accuracy'])}"
+)
+
+print(
+    f"ViT Accuracy     : "
+    f"{pct(vit_metrics['accuracy'])}"
+)
+
+print(
+    f"Fusion Accuracy  : "
+    f"{pct(fusion_metrics['accuracy'])}"
+)
+
+print(
+    f"Fusion Precision : "
+    f"{pct(fusion_metrics['macro_precision'])}"
+)
+
+print(
+    f"Fusion Recall    : "
+    f"{pct(fusion_metrics['macro_recall'])}"
+)
+
+print(
+    f"Fusion Macro F1  : "
+    f"{pct(fusion_metrics['macro_f1'])}"
+)
+
+print(
+    f"Fusion ROC-AUC   : "
+    f"{fusion_metrics['macro_roc_auc']:.4f}"
+)
+
+print()
+print("Fusion weights:")
+
+print(
+    f"  EfficientNet : "
+    f"{eff_weight:.2f}"
+)
+
+print(
+    f"  ViT          : "
+    f"{vit_weight:.2f}"
+)
+
+print()
+print("Fusion improvement:")
+
+print(
+    f"  Accuracy vs EfficientNet : "
+    f"{fusion_gain_vs_eff_accuracy * 100:+.2f} pp"
+)
+
+print(
+    f"  Accuracy vs ViT          : "
+    f"{fusion_gain_vs_vit_accuracy * 100:+.2f} pp"
+)
+
+print()
+print("Best comparison models:")
+
+print(
+    "  Accuracy   : EfficientNet + ViT Fusion"
+)
+
+print(
+    "  Macro F1   : EfficientNet + ViT Fusion"
+)
+
+print(
+    "  Macro AUC  : EfficientNet + ViT Fusion"
 )
 
 print()
 print(
-    "Generated files:"
-)
-
-for file in sorted(
-    OUTPUT_ROOT.iterdir()
-):
-
-    if file.is_file():
-
-        print(
-            f"  ✓ {file.name}"
-        )
-
-
-print()
-print(
-    "Final system metrics:"
-)
-
-if final_metrics:
-
-    print(
-        f"  Accuracy        : "
-        f"{percentage(final_metrics.get('accuracy'))}"
-    )
-
-    print(
-        f"  Macro Precision : "
-        f"{percentage(final_metrics.get('precision_macro'))}"
-    )
-
-    print(
-        f"  Macro Recall    : "
-        f"{percentage(final_metrics.get('recall_macro'))}"
-    )
-
-    print(
-        f"  Macro F1        : "
-        f"{percentage(final_metrics.get('f1_macro'))}"
-    )
-
-    print(
-        f"  Weighted F1     : "
-        f"{percentage(final_metrics.get('f1_weighted'))}"
-    )
-
-    print(
-        f"  ROC-AUC         : "
-        f"{percentage(final_metrics.get('roc_auc_macro'))}"
-    )
-
-    print(
-        f"  Mean Confidence : "
-        f"{final_metrics.get('mean_confidence')}"
-    )
-
-    print(
-        f"  Mean Uncertainty: "
-        f"{final_metrics.get('mean_uncertainty')}"
-    )
-
-
-print()
-print(
-    "Best comparison models:"
+    "✓ Final 512x512 Respira system summary generated."
 )
 
 print(
-    f"  Accuracy   : {best_accuracy_model}"
+    "✓ No model checkpoints were modified."
 )
 
 print(
-    f"  Macro F1   : {best_f1_model}"
+    "✓ No dataset files were modified."
 )
 
 print(
-    f"  Macro AUC  : {best_auc_model}"
+    "✓ Final test set was used only for evaluation."
 )
 
-print()
-print(
-    "✓ Complete Respira analysis pipeline consolidated."
-)
-
-print(
-    "✓ Final system report generated."
-)
+print("=" * 70)

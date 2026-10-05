@@ -1,18 +1,6 @@
 # ============================================================
-# Respira - STEP 8.5
-# MODEL COMPARISON & FINAL PERFORMANCE ANALYSIS
-# ============================================================
-#
-# Compares:
-#   1. DenseNet121
-#   2. EfficientNet-B0
-#   3. EfficientNet + ViT Fusion
-#
-# Uses previously generated metrics.json files.
-#
-# Output:
-#   outputs/final_analysis/model_comparison
-#
+# RESPIRA — STEP 8.5
+# 512x512 MODEL COMPARISON & FINAL PERFORMANCE ANALYSIS
 # ============================================================
 
 from pathlib import Path
@@ -23,7 +11,7 @@ import matplotlib.pyplot as plt
 
 
 # ============================================================
-# PROJECT PATHS
+# PATHS
 # ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -35,18 +23,18 @@ OUTPUT_ROOT = (
     / "model_comparison"
 )
 
-DENSENET_METRICS = (
+EFFICIENTNET_METRICS = (
     PROJECT_ROOT
     / "outputs"
-    / "densenet"
+    / "efficientnet_b0_512"
     / "evaluation"
     / "metrics.json"
 )
 
-EFFICIENTNET_METRICS = (
+VIT_METRICS = (
     PROJECT_ROOT
     / "outputs"
-    / "efficientnet_b0"
+    / "vit_512"
     / "evaluation"
     / "metrics.json"
 )
@@ -55,15 +43,16 @@ FUSION_METRICS = (
     PROJECT_ROOT
     / "outputs"
     / "fusion"
-    / "classification"
-    / "metrics"
+    / "test"
     / "metrics.json"
 )
 
-
-# ============================================================
-# CREATE OUTPUT DIRECTORY
-# ============================================================
+FUSION_CONFIG = (
+    PROJECT_ROOT
+    / "outputs"
+    / "fusion"
+    / "fusion_config.json"
+)
 
 OUTPUT_ROOT.mkdir(
     parents=True,
@@ -71,9 +60,13 @@ OUTPUT_ROOT.mkdir(
 )
 
 
+# ============================================================
+# HEADER
+# ============================================================
+
 print("=" * 70)
 print("RESPIRA — STEP 8.5")
-print("MODEL COMPARISON & FINAL PERFORMANCE ANALYSIS")
+print("512x512 MODEL COMPARISON & FINAL PERFORMANCE ANALYSIS")
 print("=" * 70)
 
 print()
@@ -82,180 +75,195 @@ print(f"Output root  : {OUTPUT_ROOT}")
 
 
 # ============================================================
-# LOAD METRICS
+# LOAD JSON
 # ============================================================
 
-def load_metrics(path, model_name):
+def load_json(path):
 
     if not path.exists():
-
-        print()
-        print(
-            f"⚠ Metrics not found for {model_name}:"
+        raise FileNotFoundError(
+            f"\nRequired file not found:\n{path}"
         )
-
-        print(path)
-
-        return None
 
     with open(
         path,
         "r",
         encoding="utf-8"
-    ) as file:
-
-        data = json.load(file)
-
-    print(
-        f"✓ {model_name} metrics loaded"
-    )
-
-    return data
+    ) as f:
+        return json.load(f)
 
 
 print()
 print("=" * 70)
-print("LOADING MODEL METRICS")
+print("LOADING 512x512 MODEL METRICS")
 print("=" * 70)
 
-densenet = load_metrics(
-    DENSENET_METRICS,
-    "DenseNet121"
+efficientnet = load_json(
+    EFFICIENTNET_METRICS
 )
 
-efficientnet = load_metrics(
-    EFFICIENTNET_METRICS,
-    "EfficientNet-B0"
+print("✓ EfficientNet-B0 512x512 metrics loaded")
+print(f"  Source: {EFFICIENTNET_METRICS}")
+
+vit = load_json(
+    VIT_METRICS
 )
 
-fusion = load_metrics(
-    FUSION_METRICS,
-    "EfficientNet + ViT Fusion"
+print("✓ ViT-B/16 512x512 metrics loaded")
+print(f"  Source: {VIT_METRICS}")
+
+fusion = load_json(
+    FUSION_METRICS
 )
+
+print("✓ EfficientNet + ViT Fusion metrics loaded")
+print(f"  Source: {FUSION_METRICS}")
+
+
+# ============================================================
+# LOAD FUSION CONFIG
+# ============================================================
+
+fusion_config = {}
+
+if FUSION_CONFIG.exists():
+
+    fusion_config = load_json(
+        FUSION_CONFIG
+    )
+
+    print()
+    print("✓ Fusion configuration loaded")
 
 
 # ============================================================
 # BUILD COMPARISON TABLE
 # ============================================================
 
-models = []
-
-
-def add_model(
-    model_name,
-    data
-):
-
-    if data is None:
-        return
-
-    models.append({
-
+comparison = pd.DataFrame([
+    {
         "Model":
-            model_name,
+            "EfficientNet-B0 512x512",
 
         "Accuracy":
-            data.get(
-                "accuracy",
-                None
-            ),
+            efficientnet["accuracy"],
 
         "Precision Macro":
-            data.get(
-                "precision_macro",
-                None
-            ),
+            efficientnet["macro_precision"],
 
         "Recall Macro":
-            data.get(
-                "recall_macro",
-                None
-            ),
+            efficientnet["macro_recall"],
 
         "F1 Macro":
-            data.get(
-                "f1_macro",
-                None
-            ),
+            efficientnet["macro_f1"],
 
         "Precision Weighted":
-            data.get(
-                "precision_weighted",
-                None
-            ),
+            efficientnet["weighted_precision"],
 
         "Recall Weighted":
-            data.get(
-                "recall_weighted",
-                None
-            ),
+            efficientnet["weighted_recall"],
 
         "F1 Weighted":
-            data.get(
-                "f1_weighted",
-                None
-            ),
+            efficientnet["weighted_f1"],
 
         "ROC-AUC Macro":
-            data.get(
-                "roc_auc_macro",
-                None
-            ),
+            efficientnet["macro_roc_auc"],
 
-        "Test Images":
-            data.get(
-                "test_images",
-                2072
-            )
-    })
+        "Test Samples":
+            efficientnet["test_samples"]
+    },
+
+    {
+        "Model":
+            "ViT-B/16 512x512",
+
+        "Accuracy":
+            vit["accuracy"],
+
+        "Precision Macro":
+            vit["macro_precision"],
+
+        "Recall Macro":
+            vit["macro_recall"],
+
+        "F1 Macro":
+            vit["macro_f1"],
+
+        "Precision Weighted":
+            vit["weighted_precision"],
+
+        "Recall Weighted":
+            vit["weighted_recall"],
+
+        "F1 Weighted":
+            vit["weighted_f1"],
+
+        "ROC-AUC Macro":
+            vit["macro_roc_auc"],
+
+        "Test Samples":
+            vit["test_samples"]
+    },
+
+    {
+        "Model":
+            "EfficientNet + ViT Fusion",
+
+        "Accuracy":
+            fusion["fusion_test_accuracy"],
+
+        "Precision Macro":
+            fusion["macro_precision"],
+
+        "Recall Macro":
+            fusion["macro_recall"],
+
+        "F1 Macro":
+            fusion["macro_f1"],
+
+        "Precision Weighted":
+            fusion["weighted_precision"],
+
+        "Recall Weighted":
+            fusion["weighted_recall"],
+
+        "F1 Weighted":
+            fusion["weighted_f1"],
+
+        "ROC-AUC Macro":
+            fusion["macro_roc_auc"],
+
+        "Test Samples":
+            fusion["test_samples"]
+    }
+])
 
 
-add_model(
-    "DenseNet121",
-    densenet
-)
-
-add_model(
-    "EfficientNet-B0",
-    efficientnet
-)
-
-add_model(
-    "EfficientNet + ViT Fusion",
-    fusion
-)
-
-
-comparison = pd.DataFrame(
-    models
-)
-
+# ============================================================
+# DISPLAY
+# ============================================================
 
 print()
 print("=" * 70)
-print("MODEL COMPARISON")
+print("512x512 MODEL COMPARISON")
 print("=" * 70)
-
 print()
 
-if not comparison.empty:
-
-    display_columns = [
-        "Model",
-        "Accuracy",
-        "Precision Macro",
-        "Recall Macro",
-        "F1 Macro",
-        "ROC-AUC Macro"
-    ]
-
-    print(
-        comparison[
-            display_columns
-        ].to_string(
-            index=False
-        )
+print(
+    comparison[
+        [
+            "Model",
+            "Accuracy",
+            "Precision Macro",
+            "Recall Macro",
+            "F1 Macro",
+            "ROC-AUC Macro"
+        ]
+    ].to_string(
+        index=False,
+        float_format=lambda x: f"{x:.4f}"
     )
+)
 
 
 # ============================================================
@@ -273,174 +281,128 @@ comparison.to_csv(
 )
 
 print()
-print(
-    f"✓ Saved: {csv_path}"
-)
+print(f"✓ Saved: {csv_path}")
 
 
 # ============================================================
-# DETERMINE BEST MODELS
+# BEST MODELS
 # ============================================================
 
-best_accuracy = None
-best_f1 = None
-best_auc = None
+best_accuracy_model = comparison.loc[
+    comparison["Accuracy"].idxmax(),
+    "Model"
+]
 
+best_f1_model = comparison.loc[
+    comparison["F1 Macro"].idxmax(),
+    "Model"
+]
 
-if not comparison.empty:
-
-    accuracy_series = comparison[
-        "Accuracy"
-    ].dropna()
-
-    f1_series = comparison[
-        "F1 Macro"
-    ].dropna()
-
-    auc_series = comparison[
-        "ROC-AUC Macro"
-    ].dropna()
-
-    if not accuracy_series.empty:
-
-        best_accuracy = comparison.loc[
-            accuracy_series.idxmax(),
-            "Model"
-        ]
-
-    if not f1_series.empty:
-
-        best_f1 = comparison.loc[
-            f1_series.idxmax(),
-            "Model"
-        ]
-
-    if not auc_series.empty:
-
-        best_auc = comparison.loc[
-            auc_series.idxmax(),
-            "Model"
-        ]
+best_auc_model = comparison.loc[
+    comparison["ROC-AUC Macro"].idxmax(),
+    "Model"
+]
 
 
 # ============================================================
-# IMPROVEMENT ANALYSIS
+# IMPROVEMENT CALCULATIONS
 # ============================================================
 
-improvements = {}
-
-
-def calculate_improvement(
+def improvement(
     baseline,
-    proposed,
-    metric
+    proposed
 ):
 
-    if (
-        baseline is None
-        or proposed is None
-        or metric not in baseline
-        or metric not in proposed
-    ):
-
-        return None
-
-    baseline_value = baseline.get(
-        metric
-    )
-
-    proposed_value = proposed.get(
-        metric
-    )
-
-    if (
-        baseline_value is None
-        or proposed_value is None
-    ):
-
-        return None
-
-    absolute = (
-        proposed_value
-        - baseline_value
-    )
-
-    relative = (
-        absolute
-        / baseline_value
-        * 100
-    )
-
     return {
+        "absolute":
+            proposed - baseline,
 
-        "baseline":
-            baseline_value,
-
-        "fusion":
-            proposed_value,
-
-        "absolute_improvement":
-            absolute,
-
-        "relative_improvement_percent":
-            relative
+        "percentage_points":
+            (proposed - baseline) * 100
     }
 
 
-if (
-    densenet is not None
-    and fusion is not None
-):
+improvements = {
 
-    for metric in [
+    "fusion_vs_efficientnet": {
 
-        "accuracy",
-        "precision_macro",
-        "recall_macro",
-        "f1_macro",
-        "roc_auc_macro"
+        "accuracy":
+            improvement(
+                efficientnet["accuracy"],
+                fusion["fusion_test_accuracy"]
+            ),
 
-    ]:
+        "macro_precision":
+            improvement(
+                efficientnet["macro_precision"],
+                fusion["macro_precision"]
+            ),
 
-        result = calculate_improvement(
-            densenet,
-            fusion,
-            metric
-        )
+        "macro_recall":
+            improvement(
+                efficientnet["macro_recall"],
+                fusion["macro_recall"]
+            ),
 
-        if result is not None:
+        "macro_f1":
+            improvement(
+                efficientnet["macro_f1"],
+                fusion["macro_f1"]
+            ),
 
-            improvements[
-                f"Fusion_vs_DenseNet_{metric}"
-            ] = result
+        "macro_roc_auc":
+            improvement(
+                efficientnet["macro_roc_auc"],
+                fusion["macro_roc_auc"]
+            )
+    },
+
+    "fusion_vs_vit": {
+
+        "accuracy":
+            improvement(
+                vit["accuracy"],
+                fusion["fusion_test_accuracy"]
+            ),
+
+        "macro_precision":
+            improvement(
+                vit["macro_precision"],
+                fusion["macro_precision"]
+            ),
+
+        "macro_recall":
+            improvement(
+                vit["macro_recall"],
+                fusion["macro_recall"]
+            ),
+
+        "macro_f1":
+            improvement(
+                vit["macro_f1"],
+                fusion["macro_f1"]
+            ),
+
+        "macro_roc_auc":
+            improvement(
+                vit["macro_roc_auc"],
+                fusion["macro_roc_auc"]
+            )
+    }
+}
 
 
-if (
-    efficientnet is not None
-    and fusion is not None
-):
+# ============================================================
+# FUSION WEIGHTS
+# ============================================================
 
-    for metric in [
+fusion_weights = {
+    "efficientnet_weight":
+        fusion["efficientnet_weight"],
 
-        "accuracy",
-        "precision_macro",
-        "recall_macro",
-        "f1_macro",
-        "roc_auc_macro"
-
-    ]:
-
-        result = calculate_improvement(
-            efficientnet,
-            fusion,
-            metric
-        )
-
-        if result is not None:
-
-            improvements[
-                f"Fusion_vs_EfficientNet_{metric}"
-            ] = result
+    "vit_weight":
+        fusion["vit_weight"]
+}
 
 
 # ============================================================
@@ -452,24 +414,34 @@ summary = {
     "stage":
         "STEP 8.5",
 
-    "analysis":
-        "Model Comparison & Final Performance Analysis",
+    "experiment":
+        "512x512 final model comparison",
 
-    "models_compared":
-        comparison[
-            "Model"
-        ].tolist()
-        if not comparison.empty
-        else [],
+    "test_samples":
+        fusion["test_samples"],
+
+    "models":
+        comparison.to_dict(
+            orient="records"
+        ),
 
     "best_accuracy_model":
-        best_accuracy,
+        best_accuracy_model,
 
     "best_macro_f1_model":
-        best_f1,
+        best_f1_model,
 
     "best_macro_roc_auc_model":
-        best_auc,
+        best_auc_model,
+
+    "fusion_weights":
+        fusion_weights,
+
+    "validation_fusion_accuracy":
+        fusion["validation_fusion_accuracy"],
+
+    "validation_fusion_macro_f1":
+        fusion["validation_fusion_macro_f1"],
 
     "improvements":
         improvements
@@ -485,16 +457,14 @@ with open(
     summary_path,
     "w",
     encoding="utf-8"
-) as file:
+) as f:
 
     json.dump(
         summary,
-        file,
+        f,
         indent=4
     )
 
-
-print()
 print(
     f"✓ Saved: {summary_path}"
 )
@@ -513,106 +483,105 @@ with open(
     text_path,
     "w",
     encoding="utf-8"
-) as file:
+) as f:
 
-    file.write(
+    f.write(
         "RESPIRA — STEP 8.5\n"
     )
 
-    file.write(
-        "MODEL COMPARISON & FINAL PERFORMANCE ANALYSIS\n"
+    f.write(
+        "512x512 MODEL COMPARISON & FINAL PERFORMANCE ANALYSIS\n"
     )
 
-    file.write(
-        "=" * 70
-        + "\n\n"
+    f.write(
+        "=" * 70 + "\n\n"
     )
 
-    file.write(
-        "MODELS COMPARED\n"
+    f.write(
+        "Test samples: 1947\n\n"
     )
 
-    for model in comparison[
-        "Model"
-    ].tolist():
-
-        file.write(
-            f"  - {model}\n"
+    f.write(
+        comparison.to_string(
+            index=False
         )
-
-    file.write(
-        "\nPERFORMANCE\n\n"
     )
 
-    if not comparison.empty:
-
-        file.write(
-            comparison[
-                [
-                    "Model",
-                    "Accuracy",
-                    "Precision Macro",
-                    "Recall Macro",
-                    "F1 Macro",
-                    "ROC-AUC Macro"
-                ]
-            ].to_string(
-                index=False
-            )
-        )
-
-        file.write(
-            "\n\n"
-        )
-
-    file.write(
-        f"Best Accuracy Model : "
-        f"{best_accuracy}\n"
+    f.write(
+        "\n\n"
     )
 
-    file.write(
-        f"Best Macro F1 Model : "
-        f"{best_f1}\n"
+    f.write(
+        f"Best Accuracy Model: "
+        f"{best_accuracy_model}\n"
     )
 
-    file.write(
-        f"Best Macro ROC-AUC  : "
-        f"{best_auc}\n"
+    f.write(
+        f"Best Macro F1 Model: "
+        f"{best_f1_model}\n"
     )
 
-    file.write(
-        "\n"
+    f.write(
+        f"Best Macro ROC-AUC Model: "
+        f"{best_auc_model}\n"
     )
 
-    file.write(
-        "FUSION IMPROVEMENTS\n"
+    f.write(
+        "\nFusion weights:\n"
     )
 
-    for name, result in improvements.items():
+    f.write(
+        f"EfficientNet: "
+        f"{fusion['efficientnet_weight']}\n"
+    )
 
-        file.write(
-            f"\n{name}\n"
-        )
+    f.write(
+        f"ViT: "
+        f"{fusion['vit_weight']}\n"
+    )
 
-        file.write(
-            f"  Baseline       : "
-            f"{result['baseline']:.4f}\n"
-        )
+    f.write(
+        "\nValidation fusion performance:\n"
+    )
 
-        file.write(
-            f"  Fusion         : "
-            f"{result['fusion']:.4f}\n"
-        )
+    f.write(
+        f"Accuracy: "
+        f"{fusion['validation_fusion_accuracy']:.6f}\n"
+    )
 
-        file.write(
-            f"  Absolute gain  : "
-            f"{result['absolute_improvement']:.4f}\n"
-        )
+    f.write(
+        f"Macro F1: "
+        f"{fusion['validation_fusion_macro_f1']:.6f}\n"
+    )
 
-        file.write(
-            f"  Relative gain  : "
-            f"{result['relative_improvement_percent']:.2f}%\n"
-        )
+    f.write(
+        "\nFinal test fusion performance:\n"
+    )
+
+    f.write(
+        f"Accuracy: "
+        f"{fusion['fusion_test_accuracy']:.6f}\n"
+    )
+
+    f.write(
+        f"Macro Precision: "
+        f"{fusion['macro_precision']:.6f}\n"
+    )
+
+    f.write(
+        f"Macro Recall: "
+        f"{fusion['macro_recall']:.6f}\n"
+    )
+
+    f.write(
+        f"Macro F1: "
+        f"{fusion['macro_f1']:.6f}\n"
+    )
+
+    f.write(
+        f"Macro ROC-AUC: "
+        f"{fusion['macro_roc_auc']:.6f}\n"
+    )
 
 
 print(
@@ -630,23 +599,13 @@ def create_metric_plot(
     title
 ):
 
-    if comparison.empty:
-        return
-
-    values = comparison[
-        column
-    ]
-
-    if values.isna().all():
-        return
-
     plt.figure(
         figsize=(10, 6)
     )
 
     plt.bar(
         comparison["Model"],
-        values
+        comparison[column]
     )
 
     plt.ylabel(
@@ -687,7 +646,7 @@ def create_metric_plot(
 
 
 # ============================================================
-# INDIVIDUAL METRIC PLOTS
+# INDIVIDUAL PLOTS
 # ============================================================
 
 print()
@@ -698,122 +657,115 @@ print("=" * 70)
 create_metric_plot(
     "Accuracy",
     "accuracy_comparison.png",
-    "Model Accuracy Comparison"
+    "512x512 Model Accuracy Comparison"
 )
 
 create_metric_plot(
     "Precision Macro",
     "precision_comparison.png",
-    "Macro Precision Comparison"
+    "512x512 Macro Precision Comparison"
 )
 
 create_metric_plot(
     "Recall Macro",
     "recall_comparison.png",
-    "Macro Recall Comparison"
+    "512x512 Macro Recall Comparison"
 )
 
 create_metric_plot(
     "F1 Macro",
     "f1_comparison.png",
-    "Macro F1 Score Comparison"
+    "512x512 Macro F1 Score Comparison"
 )
 
 create_metric_plot(
     "ROC-AUC Macro",
     "roc_auc_comparison.png",
-    "Macro ROC-AUC Comparison"
+    "512x512 Macro ROC-AUC Comparison"
 )
 
 
 # ============================================================
-# OVERALL COMPARISON PLOT
+# OVERALL PLOT
 # ============================================================
 
-if not comparison.empty:
+metrics = [
+    "Accuracy",
+    "Precision Macro",
+    "Recall Macro",
+    "F1 Macro",
+    "ROC-AUC Macro"
+]
 
-    metrics = [
-        "Accuracy",
-        "Precision Macro",
-        "Recall Macro",
-        "F1 Macro",
-        "ROC-AUC Macro"
-    ]
+plt.figure(
+    figsize=(13, 7)
+)
 
-    x = range(
-        len(comparison)
+x = range(
+    len(comparison)
+)
+
+width = 0.15
+
+for i, metric in enumerate(metrics):
+
+    offset = (
+        i - 2
+    ) * width
+
+    plt.bar(
+        [
+            value + offset
+            for value in x
+        ],
+        comparison[metric],
+        width=width,
+        label=metric
     )
 
-    width = 0.15
+plt.xticks(
+    list(x),
+    comparison["Model"],
+    rotation=15,
+    ha="right"
+)
 
-    plt.figure(
-        figsize=(13, 7)
-    )
+plt.ylabel(
+    "Score"
+)
 
-    for i, metric in enumerate(
-        metrics
-    ):
+plt.ylim(
+    0,
+    1
+)
 
-        offset = (
-            i
-            - len(metrics) / 2
-        ) * width
+plt.title(
+    "Overall 512x512 Model Performance Comparison"
+)
 
-        plt.bar(
-            [
-                value + offset
-                for value in x
-            ],
-            comparison[
-                metric
-            ],
-            width=width,
-            label=metric
-        )
+plt.legend()
 
-    plt.xticks(
-        list(x),
-        comparison["Model"],
-        rotation=15,
-        ha="right"
-    )
+plt.tight_layout()
 
-    plt.ylabel(
-        "Score"
-    )
+overall_path = (
+    OUTPUT_ROOT
+    / "overall_model_comparison.png"
+)
 
-    plt.ylim(
-        0,
-        1
-    )
+plt.savefig(
+    overall_path,
+    dpi=200
+)
 
-    plt.title(
-        "Overall Model Performance Comparison"
-    )
+plt.close()
 
-    plt.legend()
-
-    plt.tight_layout()
-
-    overall_path = (
-        OUTPUT_ROOT
-        / "overall_model_comparison.png"
-    )
-
-    plt.savefig(
-        overall_path,
-        dpi=200
-    )
-
-    plt.close()
-
-    print(
-        f"✓ {overall_path.name}"
-    )
+print(
+    f"✓ {overall_path.name}"
+)
 
 
 # ============================================================
-# FINAL REPORT
+# FINAL SUMMARY
 # ============================================================
 
 print()
@@ -822,66 +774,50 @@ print("STEP 8.5 COMPLETED SUCCESSFULLY")
 print("=" * 70)
 
 print()
-print(
-    "Model comparison outputs:"
-)
+print("Model comparison outputs:")
+print(OUTPUT_ROOT)
 
+print()
+print("Best Accuracy Model:")
 print(
-    OUTPUT_ROOT
+    f"  {best_accuracy_model}"
 )
 
 print()
+print("Best Macro F1 Model:")
 print(
-    "Generated:"
-)
-
-for path in sorted(
-    OUTPUT_ROOT.iterdir()
-):
-
-    if path.is_file():
-
-        print(
-            f"  ✓ {path.name}"
-        )
-
-print()
-print(
-    "Best Accuracy Model:"
-)
-
-print(
-    f"  {best_accuracy}"
+    f"  {best_f1_model}"
 )
 
 print()
+print("Best Macro ROC-AUC Model:")
 print(
-    "Best Macro F1 Model:"
-)
-
-print(
-    f"  {best_f1}"
+    f"  {best_auc_model}"
 )
 
 print()
+print("Fusion weights:")
 print(
-    "Best Macro ROC-AUC Model:"
+    f"  EfficientNet : "
+    f"{fusion['efficientnet_weight']:.2f}"
 )
 
 print(
-    f"  {best_auc}"
+    f"  ViT          : "
+    f"{fusion['vit_weight']:.2f}"
 )
 
 print()
+print("Final Fusion Test Accuracy:")
 print(
-    "✓ STEP 8.5 COMPLETED."
+    f"  {fusion['fusion_test_accuracy'] * 100:.2f}%"
 )
 
 print()
-print(
-    "Next stage:"
-)
+print("✓ STEP 8.5 COMPLETED.")
 
+print()
+print("Next stage:")
 print(
     "STEP 8.6 — FINAL SYSTEM SUMMARY & REPORT GENERATION"
 )

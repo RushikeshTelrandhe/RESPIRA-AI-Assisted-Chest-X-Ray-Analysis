@@ -1,43 +1,24 @@
 # ============================================================
-# Respira - EfficientNet-B0 Training
-# ============================================================
-#
-# Baseline experiment:
-#   EfficientNet-B0
-#
-# Dataset:
-#   Respira processed Chest X-Ray dataset
-#
-# Classes:
-#   1. Atelectasis
-#   2. Bacterial Pneumonia
-#   3. Normal
-#   4. Pulmonary Edema
-#   5. Tuberculosis
-#   6. Viral Pneumonia
-#
-# Input:
-#   224 x 224 RGB
-#
-# Output:
-#   6-class logits
-#
+# RESPIRA - EfficientNet-B0 512x512 Training
 # ============================================================
 
 from pathlib import Path
 import json
-import time
 import random
+import time
 
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
 import torch
 import torch.nn as nn
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from src.models.efficientnet import (
-    create_efficientnet_b0
-)
+from src.models.efficientnet import create_efficientnet_b0
 
 
 # ============================================================
@@ -46,62 +27,54 @@ from src.models.efficientnet import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-DATA_DIR = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-)
+DATA_DIR = PROJECT_ROOT / "data" / "Lung_Disease_Preprocessed_512"
 
-CHECKPOINT_DIR = (
-    PROJECT_ROOT
-    / "checkpoints"
-    / "efficientnet_b0"
-)
+OUTPUT_DIR = PROJECT_ROOT / "outputs" / "efficientnet_b0_512"
 
-OUTPUT_DIR = (
-    PROJECT_ROOT
-    / "outputs"
-    / "efficientnet_b0"
-)
-
-LOG_DIR = (
-    PROJECT_ROOT
-    / "logs"
-    / "efficientnet_b0"
-)
+CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
+EVALUATION_DIR = OUTPUT_DIR / "evaluation"
+PLOTS_DIR = OUTPUT_DIR / "plots"
 
 for directory in [
-    CHECKPOINT_DIR,
     OUTPUT_DIR,
-    LOG_DIR,
+    CHECKPOINT_DIR,
+    EVALUATION_DIR,
+    PLOTS_DIR,
 ]:
-    directory.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    directory.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================
 # 2. CONFIGURATION
 # ============================================================
 
-SEED = 42
-
-IMAGE_SIZE = 224
+IMAGE_SIZE = 512
 
 NUM_CLASSES = 6
 
-BATCH_SIZE = 32
+BATCH_SIZE = 16
+NUM_WORKERS = 0
 
-NUM_EPOCHS = 20
+TOTAL_EPOCHS = 25
 
-LEARNING_RATE = 1e-4
+# Stage 1:
+# Train only the classifier while keeping ImageNet features frozen.
+STAGE1_EPOCHS = 3
+
+STAGE1_LR = 1e-3
+
+# Stage 2:
+# Fine-tune the complete EfficientNet.
+STAGE2_LR = 1e-4
 
 WEIGHT_DECAY = 1e-4
 
-NUM_WORKERS = 0
+EARLY_STOPPING_PATIENCE = 6
 
-PIN_MEMORY = torch.cuda.is_available()
+DROPOUT = 0.3
+
+SEED = 42
+
 
 CLASS_NAMES = [
     "Atelectasis",
@@ -117,17 +90,18 @@ CLASS_NAMES = [
 # 3. REPRODUCIBILITY
 # ============================================================
 
-def set_seed(seed: int):
-
+def set_seed(seed=42):
     random.seed(seed)
-
     np.random.seed(seed)
-
     torch.manual_seed(seed)
 
     if torch.cuda.is_available():
-
+        torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
+
+    # Reproducibility
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 set_seed(SEED)
@@ -138,162 +112,177 @@ set_seed(SEED)
 # ============================================================
 
 DEVICE = torch.device(
-    "cuda"
-    if torch.cuda.is_available()
-    else "cpu"
+    "cuda" if torch.cuda.is_available() else "cpu"
 )
 
+AMP_ENABLED = DEVICE.type == "cuda"
+
 print("=" * 70)
-print("RESPIRA - EFFICIENTNET-B0 TRAINING")
+print("RESPIRA - EfficientNet-B0 512x512 TRAINING")
 print("=" * 70)
 
-print("\nProject root:")
-print(PROJECT_ROOT)
-
-print("\nDataset:")
-print(DATA_DIR)
-
-print("\nDevice:")
-print(DEVICE)
+print(f"Device       : {DEVICE}")
 
 if torch.cuda.is_available():
+    print(f"GPU          : {torch.cuda.get_device_name(0)}")
 
-    print(
-        "GPU:",
-        torch.cuda.get_device_name(0)
-    )
+print(f"Image Size   : {IMAGE_SIZE}x{IMAGE_SIZE}")
+print(f"Batch Size   : {BATCH_SIZE}")
+print(f"Epochs       : {TOTAL_EPOCHS}")
+print(f"Mixed AMP    : {AMP_ENABLED}")
 
-    print(
-        "CUDA:",
-        torch.version.cuda
-    )
+print(f"Dataset      : {DATA_DIR}")
+print(f"Output       : {OUTPUT_DIR}")
 
-else:
-
-    print(
-        "WARNING: CUDA unavailable. "
-        "Training will use CPU."
-    )
+print("=" * 70)
 
 
 # ============================================================
-# 5. DATA TRANSFORMS
+# 5. DATASET VALIDATION
 # ============================================================
 
-# IMPORTANT:
-# The dataset has already been:
-#
-#   cleaned
-#   balanced
-#   CLAHE enhanced
-#   lung masked
-#   resized to 224x224
-#
-# Therefore we do NOT perform preprocessing again here.
+TRAIN_DIR = DATA_DIR / "train"
+VAL_DIR = DATA_DIR / "val"
+TEST_DIR = DATA_DIR / "test"
+
+for directory in [TRAIN_DIR, VAL_DIR, TEST_DIR]:
+    if not directory.exists():
+        raise FileNotFoundError(
+            f"Required directory not found: {directory}"
+        )
+
+
+# ============================================================
+# 6. TRANSFORMS
+# ============================================================
+
+# The dataset is already 512x512.
+# Resize is kept only as a safety check to guarantee model input size.
 
 train_transform = transforms.Compose([
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
 
-    transforms.Resize(
-        (IMAGE_SIZE, IMAGE_SIZE)
-    ),
-
-    transforms.RandomHorizontalFlip(
-        p=0.5
-    ),
+    transforms.RandomHorizontalFlip(p=0.5),
 
     transforms.RandomRotation(
-        degrees=5
+        degrees=5,
+        fill=0
     ),
 
     transforms.ToTensor(),
 
     transforms.Normalize(
-        mean=[
-            0.485,
-            0.456,
-            0.406
-        ],
-        std=[
-            0.229,
-            0.224,
-            0.225
-        ]
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
     ),
 ])
 
 
 eval_transform = transforms.Compose([
-
-    transforms.Resize(
-        (IMAGE_SIZE, IMAGE_SIZE)
-    ),
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
 
     transforms.ToTensor(),
 
     transforms.Normalize(
-        mean=[
-            0.485,
-            0.456,
-            0.406
-        ],
-        std=[
-            0.229,
-            0.224,
-            0.225
-        ]
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
     ),
 ])
 
 
 # ============================================================
-# 6. DATASETS
+# 7. LOAD DATASETS
 # ============================================================
 
 train_dataset = datasets.ImageFolder(
-    DATA_DIR / "train",
+    TRAIN_DIR,
     transform=train_transform
 )
 
 val_dataset = datasets.ImageFolder(
-    DATA_DIR / "val",
+    VAL_DIR,
     transform=eval_transform
 )
+
+# Test dataset is intentionally loaded only for validation of
+# folder structure. It is NOT used during training.
 
 test_dataset = datasets.ImageFolder(
-    DATA_DIR / "test",
+    TEST_DIR,
     transform=eval_transform
 )
 
 
 # ============================================================
-# 7. VERIFY CLASSES
+# 8. VERIFY CLASS ORDER
 # ============================================================
 
-print("\nDetected classes:")
+print("\nClass verification:")
 
-print(
-    train_dataset.classes
-)
+print("Train:", train_dataset.classes)
+print("Val  :", val_dataset.classes)
+print("Test :", test_dataset.classes)
 
-expected_classes = sorted(
-    CLASS_NAMES
-)
-
-actual_classes = sorted(
-    train_dataset.classes
-)
-
-if actual_classes != expected_classes:
-
-    raise RuntimeError(
-        "\nDataset class mismatch.\n"
-        f"Expected: {expected_classes}\n"
-        f"Found: {actual_classes}"
+if train_dataset.classes != CLASS_NAMES:
+    raise ValueError(
+        f"Unexpected train class order:\n"
+        f"Expected: {CLASS_NAMES}\n"
+        f"Found:    {train_dataset.classes}"
     )
 
+if val_dataset.classes != CLASS_NAMES:
+    raise ValueError(
+        f"Unexpected validation class order:\n"
+        f"Expected: {CLASS_NAMES}\n"
+        f"Found:    {val_dataset.classes}"
+    )
+
+if test_dataset.classes != CLASS_NAMES:
+    raise ValueError(
+        f"Unexpected test class order:\n"
+        f"Expected: {CLASS_NAMES}\n"
+        f"Found:    {test_dataset.classes}"
+    )
+
+print("✓ Class order verified")
+
 
 # ============================================================
-# 8. DATA LOADERS
+# 9. DATASET INFORMATION
+# ============================================================
+
+print("\nDataset:")
+print(f"Train images : {len(train_dataset)}")
+print(f"Val images   : {len(val_dataset)}")
+print(f"Test images  : {len(test_dataset)}")
+print(
+    f"Total        : "
+    f"{len(train_dataset) + len(val_dataset) + len(test_dataset)}"
+)
+
+
+# ============================================================
+# 10. CLASS DISTRIBUTION
+# ============================================================
+
+print("\nTraining class distribution:")
+
+class_counts = {}
+
+for class_index, class_name in enumerate(CLASS_NAMES):
+
+    count = sum(
+        1 for label in train_dataset.targets
+        if label == class_index
+    )
+
+    class_counts[class_name] = count
+
+    print(f"{class_name:<25} : {count}")
+
+
+# ============================================================
+# 11. DATALOADERS
 # ============================================================
 
 train_loader = DataLoader(
@@ -301,7 +290,7 @@ train_loader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=True,
     num_workers=NUM_WORKERS,
-    pin_memory=PIN_MEMORY
+    pin_memory=torch.cuda.is_available(),
 )
 
 val_loader = DataLoader(
@@ -309,108 +298,136 @@ val_loader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=False,
     num_workers=NUM_WORKERS,
-    pin_memory=PIN_MEMORY
-)
-
-test_loader = DataLoader(
-    test_dataset,
-    batch_size=BATCH_SIZE,
-    shuffle=False,
-    num_workers=NUM_WORKERS,
-    pin_memory=PIN_MEMORY
-)
-
-
-print("\nDataset sizes:")
-
-print(
-    "Train:",
-    len(train_dataset)
-)
-
-print(
-    "Validation:",
-    len(val_dataset)
-)
-
-print(
-    "Test:",
-    len(test_dataset)
+    pin_memory=torch.cuda.is_available(),
 )
 
 
 # ============================================================
-# 9. MODEL
+# 12. CREATE MODEL
 # ============================================================
+
+print("\nLoading pretrained EfficientNet-B0...")
 
 model = create_efficientnet_b0(
     num_classes=NUM_CLASSES,
     pretrained=True,
-    dropout=0.3
+    dropout=DROPOUT,
 )
 
 model = model.to(DEVICE)
 
 
-print("\nModel:")
-print(
-    "EfficientNet-B0"
+total_parameters = sum(
+    p.numel() for p in model.parameters()
 )
 
-print(
-    "Parameters:",
-    sum(
-        p.numel()
-        for p in model.parameters()
-    )
+trainable_parameters = sum(
+    p.numel()
+    for p in model.parameters()
+    if p.requires_grad
 )
+
+print(f"Total parameters     : {total_parameters:,}")
+print(f"Trainable parameters : {trainable_parameters:,}")
 
 
 # ============================================================
-# 10. LOSS
+# 13. LOSS
 # ============================================================
 
 criterion = nn.CrossEntropyLoss()
 
 
 # ============================================================
-# 11. OPTIMIZER
+# 14. AMP SETUP
 # ============================================================
 
-optimizer = torch.optim.AdamW(
-    model.parameters(),
-    lr=LEARNING_RATE,
-    weight_decay=WEIGHT_DECAY
-)
+if AMP_ENABLED:
+    try:
+        scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=True
+        )
+    except AttributeError:
+        scaler = torch.cuda.amp.GradScaler(
+            enabled=True
+        )
+else:
+    scaler = None
+
+
+def autocast_context():
+
+    if AMP_ENABLED:
+
+        try:
+            return torch.amp.autocast(
+                device_type="cuda",
+                enabled=True
+            )
+
+        except AttributeError:
+            return torch.cuda.amp.autocast(
+                enabled=True
+            )
+
+    return torch.autocast(
+        device_type="cpu",
+        enabled=False
+    )
 
 
 # ============================================================
-# 12. SCHEDULER
+# 15. BACKBONE FREEZING
 # ============================================================
 
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer,
-    mode="min",
-    factor=0.5,
-    patience=2
-)
+def freeze_backbone(model):
+
+    for parameter in model.backbone.features.parameters():
+        parameter.requires_grad = False
+
+    # Keep pretrained feature layers in evaluation mode so that
+    # BatchNorm running statistics are not changed during Stage 1.
+    model.backbone.features.eval()
+
+    # Classifier remains trainable.
+    model.backbone.classifier.train()
 
 
-# ============================================================
-# 13. TRAINING FUNCTION
-# ============================================================
+def unfreeze_backbone(model):
 
-def train_one_epoch():
+    for parameter in model.backbone.features.parameters():
+        parameter.requires_grad = True
 
     model.train()
 
+
+# ============================================================
+# 16. TRAINING FUNCTION
+# ============================================================
+
+def train_one_epoch(
+    model,
+    loader,
+    optimizer,
+    criterion,
+    epoch,
+    freeze_features=False,
+):
+
+    model.train()
+
+    if freeze_features:
+        model.backbone.features.eval()
+        model.backbone.classifier.train()
+
     running_loss = 0.0
-
     correct = 0
-
     total = 0
 
-    for images, labels in train_loader:
+    start_time = time.time()
+
+    for images, labels in loader:
 
         images = images.to(
             DEVICE,
@@ -422,60 +439,78 @@ def train_one_epoch():
             non_blocking=True
         )
 
-        optimizer.zero_grad(
-            set_to_none=True
-        )
+        optimizer.zero_grad(set_to_none=True)
 
-        outputs = model(images)
+        with autocast_context():
 
-        loss = criterion(
-            outputs,
-            labels
-        )
+            outputs = model(images)
 
-        loss.backward()
+            # EfficientNet model normally returns logits.
+            if isinstance(outputs, dict):
+                logits = outputs["logits"]
+            else:
+                logits = outputs
 
-        optimizer.step()
+            loss = criterion(
+                logits,
+                labels
+            )
+
+        if AMP_ENABLED:
+
+            scaler.scale(loss).backward()
+
+            scaler.step(optimizer)
+
+            scaler.update()
+
+        else:
+
+            loss.backward()
+
+            optimizer.step()
 
         running_loss += (
-            loss.item()
-            * images.size(0)
+            loss.item() * images.size(0)
         )
 
-        predictions = (
-            outputs.argmax(dim=1)
+        predictions = torch.argmax(
+            logits,
+            dim=1
         )
 
         correct += (
-            predictions == labels
-        ).sum().item()
+            (predictions == labels)
+            .sum()
+            .item()
+        )
 
         total += labels.size(0)
 
-    epoch_loss = (
-        running_loss / total
-    )
+    epoch_loss = running_loss / total
 
-    epoch_accuracy = (
-        correct / total
-    )
+    epoch_accuracy = correct / total
 
-    return epoch_loss, epoch_accuracy
+    elapsed = time.time() - start_time
+
+    return epoch_loss, epoch_accuracy, elapsed
 
 
 # ============================================================
-# 14. VALIDATION
+# 17. VALIDATION FUNCTION
 # ============================================================
 
 @torch.no_grad()
-def evaluate(loader):
+def validate(
+    model,
+    loader,
+    criterion,
+):
 
     model.eval()
 
     running_loss = 0.0
-
     correct = 0
-
     total = 0
 
     for images, labels in loader:
@@ -490,297 +525,457 @@ def evaluate(loader):
             non_blocking=True
         )
 
-        outputs = model(images)
+        with autocast_context():
 
-        loss = criterion(
-            outputs,
-            labels
-        )
+            outputs = model(images)
+
+            if isinstance(outputs, dict):
+                logits = outputs["logits"]
+            else:
+                logits = outputs
+
+            loss = criterion(
+                logits,
+                labels
+            )
 
         running_loss += (
-            loss.item()
-            * images.size(0)
+            loss.item() * images.size(0)
         )
 
-        predictions = (
-            outputs.argmax(dim=1)
+        predictions = torch.argmax(
+            logits,
+            dim=1
         )
 
         correct += (
-            predictions == labels
-        ).sum().item()
+            (predictions == labels)
+            .sum()
+            .item()
+        )
 
         total += labels.size(0)
 
-    loss = (
-        running_loss / total
-    )
+    val_loss = running_loss / total
 
-    accuracy = (
-        correct / total
-    )
+    val_accuracy = correct / total
 
-    return loss, accuracy
+    return val_loss, val_accuracy
 
 
 # ============================================================
-# 15. TRAINING LOOP
+# 18. STAGE 1 - CLASSIFIER TRAINING
 # ============================================================
-
-best_val_accuracy = 0.0
-
-history = []
 
 print("\n")
 print("=" * 70)
-print("TRAINING STARTED")
+print("STAGE 1 - CLASSIFIER WARM-UP")
 print("=" * 70)
 
+freeze_backbone(model)
 
-for epoch in range(
-    1,
-    NUM_EPOCHS + 1
-):
+optimizer = AdamW(
+    filter(
+        lambda p: p.requires_grad,
+        model.parameters()
+    ),
+    lr=STAGE1_LR,
+    weight_decay=WEIGHT_DECAY,
+)
 
-    start_time = time.time()
+scheduler = ReduceLROnPlateau(
+    optimizer,
+    mode="min",
+    factor=0.5,
+    patience=2,
+)
 
-    train_loss, train_acc = (
-        train_one_epoch()
+
+# ============================================================
+# 19. HISTORY
+# ============================================================
+
+history = []
+
+best_val_accuracy = -1.0
+best_val_loss = float("inf")
+
+best_epoch = 0
+
+epochs_without_improvement = 0
+
+
+# ============================================================
+# 20. TRAINING LOOP
+# ============================================================
+
+for epoch in range(1, TOTAL_EPOCHS + 1):
+
+    # --------------------------------------------------------
+    # Switch from Stage 1 to Stage 2
+    # --------------------------------------------------------
+
+    if epoch == STAGE1_EPOCHS + 1:
+
+        print("\n")
+        print("=" * 70)
+        print("SWITCHING TO STAGE 2 - FULL FINE-TUNING")
+        print("=" * 70)
+
+        unfreeze_backbone(model)
+
+        optimizer = AdamW(
+            model.parameters(),
+            lr=STAGE2_LR,
+            weight_decay=WEIGHT_DECAY,
+        )
+
+        scheduler = ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.5,
+            patience=2,
+        )
+
+        # Give Stage 2 its own early-stopping window.
+        epochs_without_improvement = 0
+
+
+    # --------------------------------------------------------
+    # Current stage
+    # --------------------------------------------------------
+
+    if epoch <= STAGE1_EPOCHS:
+
+        current_stage = "classifier_warmup"
+
+        freeze_features = True
+
+    else:
+
+        current_stage = "full_finetuning"
+
+        freeze_features = False
+
+
+    # --------------------------------------------------------
+    # Train
+    # --------------------------------------------------------
+
+    train_loss, train_accuracy, epoch_time = train_one_epoch(
+        model=model,
+        loader=train_loader,
+        optimizer=optimizer,
+        criterion=criterion,
+        epoch=epoch,
+        freeze_features=freeze_features,
     )
 
-    val_loss, val_acc = (
-        evaluate(val_loader)
+
+    # --------------------------------------------------------
+    # Validation
+    # --------------------------------------------------------
+
+    val_loss, val_accuracy = validate(
+        model=model,
+        loader=val_loader,
+        criterion=criterion,
     )
 
-    scheduler.step(
-        val_loss
-    )
 
-    elapsed = (
-        time.time()
-        - start_time
-    )
+    scheduler.step(val_loss)
 
-    current_lr = (
-        optimizer.param_groups[0]["lr"]
-    )
+
+    current_lr = optimizer.param_groups[0]["lr"]
+
+
+    # --------------------------------------------------------
+    # Store history
+    # --------------------------------------------------------
 
     history.append({
-
         "epoch": epoch,
-
-        "train_loss": train_loss,
-
-        "train_accuracy": train_acc,
-
-        "val_loss": val_loss,
-
-        "val_accuracy": val_acc,
-
+        "stage": current_stage,
         "learning_rate": current_lr,
-
-        "time_seconds": elapsed
+        "train_loss": train_loss,
+        "train_accuracy": train_accuracy,
+        "val_loss": val_loss,
+        "val_accuracy": val_accuracy,
+        "epoch_time_seconds": epoch_time,
     })
 
-    print(
-        f"\nEpoch [{epoch}/{NUM_EPOCHS}]"
-    )
+
+    # --------------------------------------------------------
+    # Print progress
+    # --------------------------------------------------------
 
     print(
-        f"Train Loss: {train_loss:.4f}"
+        f"Epoch [{epoch:02d}/{TOTAL_EPOCHS}] "
+        f"| {current_stage:<18} "
+        f"| LR {current_lr:.2e} "
+        f"| Train Loss {train_loss:.4f} "
+        f"| Train Acc {train_accuracy * 100:.2f}% "
+        f"| Val Loss {val_loss:.4f} "
+        f"| Val Acc {val_accuracy * 100:.2f}% "
+        f"| {epoch_time:.1f}s"
     )
 
-    print(
-        f"Train Accuracy: "
-        f"{train_acc:.4f}"
-    )
-
-    print(
-        f"Val Loss: {val_loss:.4f}"
-    )
-
-    print(
-        f"Val Accuracy: "
-        f"{val_acc:.4f}"
-    )
-
-    print(
-        f"Learning Rate: "
-        f"{current_lr:.7f}"
-    )
-
-    print(
-        f"Time: {elapsed:.2f}s"
-    )
 
     # --------------------------------------------------------
     # Save best model
     # --------------------------------------------------------
 
-    if val_acc > best_val_accuracy:
+    if val_accuracy > best_val_accuracy:
 
-        best_val_accuracy = val_acc
+        best_val_accuracy = val_accuracy
+
+        best_val_loss = val_loss
+
+        best_epoch = epoch
+
+        epochs_without_improvement = 0
 
         checkpoint = {
-
             "epoch": epoch,
 
-            "model_state_dict":
-                model.state_dict(),
+            "model_state_dict": model.state_dict(),
 
-            "optimizer_state_dict":
-                optimizer.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
 
-            "scheduler_state_dict":
-                scheduler.state_dict(),
+            "val_accuracy": val_accuracy,
 
-            "best_val_accuracy":
-                best_val_accuracy,
+            "val_loss": val_loss,
 
-            "class_names":
-                CLASS_NAMES,
+            "class_names": CLASS_NAMES,
 
-            "num_classes":
-                NUM_CLASSES,
+            "class_to_idx": train_dataset.class_to_idx,
 
-            "image_size":
-                IMAGE_SIZE,
+            "image_size": IMAGE_SIZE,
 
-            "model_name":
-                "EfficientNet-B0"
+            "num_classes": NUM_CLASSES,
+
+            "model_name": "EfficientNet-B0",
+
+            "pretrained": True,
+
+            "dropout": DROPOUT,
+
+            "seed": SEED,
         }
 
-        checkpoint_path = (
-            CHECKPOINT_DIR
-            / "best_model.pth"
+        best_checkpoint_path = (
+            CHECKPOINT_DIR / "best_model.pth"
         )
 
         torch.save(
             checkpoint,
-            checkpoint_path
+            best_checkpoint_path
         )
 
         print(
-            "✓ Best model saved."
+            f"  ✓ Best model saved "
+            f"(Val Acc: {val_accuracy * 100:.2f}%)"
         )
 
+    else:
 
-# ============================================================
-# 16. SAVE TRAINING HISTORY
-# ============================================================
-
-history_path = (
-    LOG_DIR
-    / "training_history.json"
-)
-
-with open(
-    history_path,
-    "w",
-    encoding="utf-8"
-) as f:
-
-    json.dump(
-        history,
-        f,
-        indent=4
-    )
+        epochs_without_improvement += 1
 
 
-# ============================================================
-# 17. TEST BEST MODEL
-# ============================================================
+    # --------------------------------------------------------
+    # Early stopping
+    # --------------------------------------------------------
 
-checkpoint_path = (
-    CHECKPOINT_DIR
-    / "best_model.pth"
-)
+    if (
+        epoch > STAGE1_EPOCHS
+        and epochs_without_improvement
+        >= EARLY_STOPPING_PATIENCE
+    ):
 
-checkpoint = torch.load(
-    checkpoint_path,
-    map_location=DEVICE
-)
+        print(
+            f"\nEarly stopping triggered at epoch {epoch}."
+        )
 
-model.load_state_dict(
-    checkpoint["model_state_dict"]
-)
-
-test_loss, test_accuracy = (
-    evaluate(test_loader)
-)
-
-
-print("\n")
-print("=" * 70)
-print("FINAL TEST RESULT")
-print("=" * 70)
-
-print(
-    f"Test Loss: {test_loss:.4f}"
-)
-
-print(
-    f"Test Accuracy: "
-    f"{test_accuracy:.4f}"
-)
-
-print(
-    f"Best Validation Accuracy: "
-    f"{best_val_accuracy:.4f}"
-)
+        break
 
 
 # ============================================================
-# 18. SAVE EXPERIMENT SUMMARY
+# 21. SAVE LAST MODEL
 # ============================================================
 
-summary = {
+last_checkpoint = {
+    "epoch": epoch,
 
-    "model": "EfficientNet-B0",
+    "model_state_dict": model.state_dict(),
 
-    "dataset": "Respira Chest X-Ray",
+    "optimizer_state_dict": optimizer.state_dict(),
+
+    "val_accuracy": val_accuracy,
+
+    "val_loss": val_loss,
+
+    "class_names": CLASS_NAMES,
+
+    "class_to_idx": train_dataset.class_to_idx,
 
     "image_size": IMAGE_SIZE,
 
     "num_classes": NUM_CLASSES,
 
+    "model_name": "EfficientNet-B0",
+
+    "pretrained": True,
+
+    "dropout": DROPOUT,
+
+    "seed": SEED,
+}
+
+torch.save(
+    last_checkpoint,
+    CHECKPOINT_DIR / "last_model.pth"
+)
+
+
+# ============================================================
+# 22. SAVE TRAINING HISTORY
+# ============================================================
+
+history_df = pd.DataFrame(history)
+
+history_csv = OUTPUT_DIR / "training_history.csv"
+
+history_df.to_csv(
+    history_csv,
+    index=False
+)
+
+
+# ============================================================
+# 23. TRAINING PLOTS
+# ============================================================
+
+plt.figure(figsize=(10, 6))
+
+plt.plot(
+    history_df["epoch"],
+    history_df["train_loss"],
+    label="Training Loss"
+)
+
+plt.plot(
+    history_df["epoch"],
+    history_df["val_loss"],
+    label="Validation Loss"
+)
+
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.title("EfficientNet-B0 512x512 - Loss")
+
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+
+plt.savefig(
+    PLOTS_DIR / "loss_curve.png",
+    dpi=200
+)
+
+plt.close()
+
+
+plt.figure(figsize=(10, 6))
+
+plt.plot(
+    history_df["epoch"],
+    history_df["train_accuracy"] * 100,
+    label="Training Accuracy"
+)
+
+plt.plot(
+    history_df["epoch"],
+    history_df["val_accuracy"] * 100,
+    label="Validation Accuracy"
+)
+
+plt.xlabel("Epoch")
+plt.ylabel("Accuracy (%)")
+plt.title("EfficientNet-B0 512x512 - Accuracy")
+
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+
+plt.savefig(
+    PLOTS_DIR / "accuracy_curve.png",
+    dpi=200
+)
+
+plt.close()
+
+
+# ============================================================
+# 24. EXPERIMENT SUMMARY
+# ============================================================
+
+summary = {
+    "model": "EfficientNet-B0",
+
+    "input_size": "512x512",
+
+    "num_classes": NUM_CLASSES,
+
     "classes": CLASS_NAMES,
+
+    "dataset": str(DATA_DIR),
+
+    "train_images": len(train_dataset),
+
+    "validation_images": len(val_dataset),
+
+    "test_images": len(test_dataset),
 
     "batch_size": BATCH_SIZE,
 
-    "epochs": NUM_EPOCHS,
+    "total_epochs_configured": TOTAL_EPOCHS,
 
-    "learning_rate": LEARNING_RATE,
+    "epochs_completed": len(history),
+
+    "stage1_epochs": STAGE1_EPOCHS,
+
+    "stage1_learning_rate": STAGE1_LR,
+
+    "stage2_learning_rate": STAGE2_LR,
 
     "weight_decay": WEIGHT_DECAY,
 
-    "best_validation_accuracy":
-        best_val_accuracy,
+    "dropout": DROPOUT,
 
-    "test_accuracy":
-        test_accuracy,
+    "pretrained": True,
 
-    "device":
-        str(DEVICE),
+    "mixed_precision": AMP_ENABLED,
 
-    "cuda_available":
-        torch.cuda.is_available(),
+    "seed": SEED,
 
-    "gpu":
-        (
-            torch.cuda.get_device_name(0)
-            if torch.cuda.is_available()
-            else None
-        )
+    "best_epoch": best_epoch,
+
+    "best_validation_accuracy": best_val_accuracy,
+
+    "best_validation_loss": best_val_loss,
+
+    "class_distribution": class_counts,
+
+    "checkpoint": str(
+        CHECKPOINT_DIR / "best_model.pth"
+    ),
 }
 
-summary_path = (
-    OUTPUT_DIR
-    / "experiment_summary.json"
-)
 
 with open(
-    summary_path,
+    OUTPUT_DIR / "experiment_summary.json",
     "w",
     encoding="utf-8"
 ) as f:
@@ -792,22 +987,67 @@ with open(
     )
 
 
+# ============================================================
+# 25. FINAL OUTPUT
+# ============================================================
+
 print("\n")
 print("=" * 70)
-print("EFFICIENTNET-B0 TRAINING COMPLETE")
+print("EFFICIENTNET-B0 512x512 TRAINING COMPLETE")
 print("=" * 70)
 
 print(
-    "\nCheckpoint:",
-    checkpoint_path
+    f"Best Epoch          : {best_epoch}"
 )
 
 print(
-    "History:",
-    history_path
+    f"Best Validation Acc : "
+    f"{best_val_accuracy * 100:.2f}%"
 )
 
 print(
-    "Summary:",
-    summary_path
+    f"Best Validation Loss: "
+    f"{best_val_loss:.4f}"
 )
+
+print(
+    f"\nBest checkpoint:"
+)
+
+print(
+    CHECKPOINT_DIR / "best_model.pth"
+)
+
+print(
+    f"\nTraining history:"
+)
+
+print(history_csv)
+
+print(
+    f"\nPlots:"
+)
+
+print(
+    PLOTS_DIR / "loss_curve.png"
+)
+
+print(
+    PLOTS_DIR / "accuracy_curve.png"
+)
+
+print("=" * 70)
+
+print(
+    "\nIMPORTANT: Test-set accuracy was NOT calculated during training."
+)
+
+print(
+    "The test set will be evaluated separately using the saved"
+)
+
+print(
+    "best validation checkpoint."
+)
+
+print("=" * 70)
