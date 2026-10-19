@@ -1,75 +1,207 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useRef, useState, type FormEvent } from "react";
+import { Link, Navigate, useNavigate } from "react-router-dom";
+import { AuthLayout } from "../components/AuthLayout";
+import { Alert, PasswordInput, SubmitButton } from "../components/UI";
 import { useAuth } from "../context/AuthContext";
-
-const STEPS = ["Personal information", "Professional information", "Security", "Confirmation"];
-
+import { useUnsavedChanges } from "../context/WorkspaceContext";
+import { errorText } from "../utils/display";
+const steps = ["Personal", "Professional", "Security", "Review"];
 export function Signup() {
-  const { signup } = useAuth();
-  const navigate = useNavigate();
+  const { signup, doctor } = useAuth();
+  const nav = useNavigate();
+  const pending = useRef(false);
   const [step, setStep] = useState(0);
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [f, setF] = useState({ full_name: "", license_no: "", email: "", phone: "", hospital: "", specialization: "", password: "", confirm_password: "" });
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
-
-  const strength = (p: string) => (p.length >= 12 ? "Strong" : p.length >= 8 ? "Medium" : "Weak");
-
-  const next = () => {
+  const [error, setError] = useState("");
+  const [f, setF] = useState({
+    full_name: "",
+    license_no: "",
+    email: "",
+    phone: "",
+    hospital: "",
+    specialization: "",
+    password: "",
+    confirm_password: "",
+  });
+  useUnsavedChanges(
+    !doctor && Object.values(f).some(Boolean),
+    "Your account form has not been submitted. Leave and discard it?",
+  );
+  const set =
+    (key: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) =>
+      setF({ ...f, [key]: e.target.value });
+  if (doctor) return <Navigate to="/dashboard" replace />;
+  async function submit(e: FormEvent) {
+    e.preventDefault();
     setError("");
-    if (step === 0 && (!f.full_name.trim() || !/.+@.+\..+/.test(f.email))) return setError("Enter your full name and a valid email.");
-    if (step === 1 && (!f.license_no.trim())) return setError("Medical registration / license number is required.");
-    if (step === 2 && (f.password.length < 8 || f.password !== f.confirm_password)) return setError("Password must be 8+ characters and match the confirmation.");
-    setStep(step + 1);
-  };
-
-  const submit = async () => {
-    setError(""); setBusy(true);
-    try { await signup(f); navigate("/dashboard"); }
-    catch (err) { setError(err instanceof Error ? err.message : "Signup failed"); }
-    finally { setBusy(false); }
-  };
-
+    if (
+      step === 2 &&
+      (f.password.length < 8 || f.password !== f.confirm_password)
+    ) {
+      setError("Use at least 8 characters and enter the same password twice.");
+      return;
+    }
+    if (step < 3) {
+      setStep(step + 1);
+      return;
+    }
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    try {
+      await signup(f);
+      nav("/dashboard", { replace: true });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+  const field = (
+    key: keyof typeof f,
+    label: string,
+    required = false,
+    type = "text",
+    autoComplete?: string,
+  ) => (
+    <div>
+      <label className="label" htmlFor={key}>
+        {label}
+        {required ? " *" : ""}
+      </label>
+      <input
+        className="input"
+        id={key}
+        type={type}
+        required={required}
+        autoComplete={autoComplete}
+        value={f[key]}
+        onChange={set(key)}
+      />
+    </div>
+  );
   return (
-    <div className="mx-auto max-w-2xl p-6">
-      <h1 className="text-2xl font-bold">Create Doctor Account</h1>
-      <ol className="mt-4 flex gap-2" aria-label="Signup progress">
-        {STEPS.map((s, i) => (
-          <li key={s} className={`flex-1 rounded-lg border p-2 text-center text-xs font-semibold ${i === step ? "border-brand-600 bg-brand-50 text-brand-700" : i < step ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-400"}`}>{s}</li>
+    <AuthLayout>
+      <Link to="/" className="auth-back-link" aria-label="Back to home">
+        ← Back
+      </Link>
+      <div className="auth-title">
+        <p className="eyebrow">Join the workspace</p>
+        <h1>Create your account.</h1>
+        <p>A doctor account for research and clinician review.</p>
+      </div>
+      <ol className="signup-steps" aria-label="Registration progress">
+        {steps.map((s, i) => (
+          <li
+            key={s}
+            className={i === step ? "active" : i < step ? "done" : ""}
+            aria-current={i === step ? "step" : undefined}
+          >
+            <span>{i + 1}</span> {s}
+          </li>
         ))}
       </ol>
-      {error && <div role="alert" className="mt-4 rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700">{error}</div>}
-      <div className="card mt-4 space-y-4 p-6">
-        {step === 0 && (<>
-          <div><label className="label" htmlFor="fn">Full name</label><input id="fn" className="input" value={f.full_name} onChange={set("full_name")} /></div>
-          <div><label className="label" htmlFor="em">Email</label><input id="em" className="input" type="email" value={f.email} onChange={set("email")} /></div>
-          <div><label className="label" htmlFor="ph">Phone</label><input id="ph" className="input" value={f.phone} onChange={set("phone")} /></div>
-        </>)}
-        {step === 1 && (<>
-          <div><label className="label" htmlFor="lic">Medical registration / license number</label><input id="lic" className="input" value={f.license_no} onChange={set("license_no")} /></div>
-          <div><label className="label" htmlFor="hosp">Hospital / clinic</label><input id="hosp" className="input" value={f.hospital} onChange={set("hospital")} /></div>
-          <div><label className="label" htmlFor="spec">Specialization</label><input id="spec" className="input" value={f.specialization} onChange={set("specialization")} placeholder="e.g. Radiology" /></div>
-        </>)}
-        {step === 2 && (<>
-          <div><label className="label" htmlFor="pw1">Password</label><input id="pw1" className="input" type="password" value={f.password} onChange={set("password")} autoComplete="new-password" /><div className="mt-1 text-xs text-slate-500">Strength: {strength(f.password)}</div></div>
-          <div><label className="label" htmlFor="pw2">Confirm password</label><input id="pw2" className="input" type="password" value={f.confirm_password} onChange={set("confirm_password")} autoComplete="new-password" /></div>
-        </>)}
-        {step === 3 && (
-          <dl className="grid gap-2 text-sm">
-            <div className="flex justify-between"><dt className="text-slate-500">Name</dt><dd className="font-medium">{f.full_name}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Email</dt><dd className="font-medium">{f.email}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">License</dt><dd className="font-medium">{f.license_no}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Hospital</dt><dd className="font-medium">{f.hospital || "—"}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Specialization</dt><dd className="font-medium">{f.specialization || "—"}</dd></div>
-          </dl>
+      <form className="auth-form stack" onSubmit={submit}>
+        {error && <Alert>{error}</Alert>}
+        {step === 0 && (
+          <>
+            {field("full_name", "Full name", true, "text", "name")}
+            {field("email", "Email address", true, "email", "email")}
+            {field("phone", "Phone", false, "tel", "tel")}
+          </>
         )}
-        <div className="flex justify-between pt-2">
-          <div>{step > 0 && <button className="btn-ghost" onClick={() => setStep(step - 1)}>Back</button>}</div>
-          {step < 3 ? <button className="btn-primary" onClick={next}>Continue</button>
-            : <button className="btn-primary" onClick={submit} disabled={busy}>{busy ? "Creating…" : "Create account"}</button>}
+        {step === 1 && (
+          <>
+            {field("license_no", "Medical registration / license number", true)}
+            {field(
+              "hospital",
+              "Hospital / clinic",
+              false,
+              "text",
+              "organization",
+            )}
+            {field("specialization", "Specialization")}
+          </>
+        )}
+        {step === 2 && (
+          <>
+            <PasswordInput
+              id="new-password"
+              label="Password *"
+              required
+              minLength={8}
+              autoComplete="new-password"
+              value={f.password}
+              onChange={set("password")}
+            />
+            <p className="field-hint">Use at least 8 characters.</p>
+            <PasswordInput
+              id="confirm-password"
+              label="Confirm password *"
+              required
+              minLength={8}
+              autoComplete="new-password"
+              value={f.confirm_password}
+              onChange={set("confirm_password")}
+            />
+          </>
+        )}
+        {step === 3 && (
+          <>
+            <h2>Check your details</h2>
+            <dl className="detail-list">
+              {(
+                [
+                  "full_name",
+                  "email",
+                  "license_no",
+                  "phone",
+                  "hospital",
+                  "specialization",
+                ] as const
+              ).map((k) => (
+                <div key={k}>
+                  <dt>
+                    {
+                      {
+                        full_name: "Name",
+                        email: "Email",
+                        license_no: "License",
+                        phone: "Phone",
+                        hospital: "Hospital",
+                        specialization: "Specialization",
+                      }[k]
+                    }
+                  </dt>
+                  <dd>{f[k] || "Not provided"}</dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        )}
+        <div className="form-actions">
+          {step > 0 && (
+            <button
+              type="button"
+              className="btn-ghost"
+              disabled={busy}
+              onClick={() => {
+                setError("");
+                setStep(step - 1);
+              }}
+            >
+              Back
+            </button>
+          )}
+          <SubmitButton busy={busy} busyText="Creating account…">
+            {step === 3 ? "Create account" : "Continue"}
+          </SubmitButton>
         </div>
-      </div>
-      <p className="mt-4 text-sm text-slate-500">Already registered? <Link to="/login" className="font-semibold text-brand-700">Sign in</Link></p>
-    </div>
+      </form>
+      <p className="auth-bottom">
+        Already registered? <Link to="/login">Sign in</Link>
+      </p>
+    </AuthLayout>
   );
 }

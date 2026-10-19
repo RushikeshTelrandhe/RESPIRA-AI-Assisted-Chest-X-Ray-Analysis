@@ -1,0 +1,166 @@
+/* RESPIRA Motion: an 8-second composited illustration, not clinical imaging. */
+.respira-film {
+  --film-length: 8s;
+  position: fixed; inset: 0; z-index: 10000; isolation: isolate;
+  overflow: hidden; background: #040e15; color: #f3fafb;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  opacity: 1; transition: opacity 240ms ease; outline: none;
+}
+.respira-film *, .respira-film *::before, .respira-film *::after { box-sizing: border-box; }
+.respira-film button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.respira-film button:focus-visible { outline: 3px solid #8ce5ed; outline-offset: 5px; }
+.respira-film button:disabled { opacity: .55; cursor: progress; transform: none; }
+.respira-film.film-leaving { opacity: 0; pointer-events: none; }
+.film-environment { position: absolute; inset: 0; background: radial-gradient(ellipse at 70% 45%, #143941 0%, #091a23 38%, #040e15 75%); }
+.film-topbar { position: absolute; z-index: 10; inset: 0 0 auto; padding: 28px 4vw; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.film-mark { display: flex; align-items: center; gap: 14px; }
+.film-mark svg { width: 44px; height: 44px; color: #72d5de; }
+.film-mark > span { letter-spacing: .22em; font-size: 10px; font-weight: 600; color: #aac7ce; }
+.film-top-actions { display: flex; gap: 10px; align-items: center; }
+.film-skip, .film-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; border: 1px solid #759fac4d; border-radius: 999px; color: #d5e7ed; background: #0b1d2699; padding: 10px 18px; font-size: 12px !important; }
+.film-icon-button { width: 44px; padding: 10px; }
+.film-skip:hover, .film-icon-button:hover { background: #193641; border-color: #6da6b4; }
+.film-footer { position: absolute; z-index: 10; bottom: 24px; left: 4vw; right: 4vw; display: flex; justify-content: space-between; align-items: center; gap: 15px; color: #a3bec8; font-size: 10px; letter-spacing: .04em; }
+.film-footer > span { display: flex; align-items: center; gap: 9px; }
+.film-footer-right { font-size: 9px; letter-spacing: .2em; }
+.film-choice { position: absolute; inset: 0; }
+.film-choice-art { position: absolute; height: 100%; width: min(75vh, 65vw); aspect-ratio: 3 / 4; right: 9%; top: 0; opacity: .74; }
+.film-patient-still, .film-patient-cough { position: absolute; inset: 0; background-image: url('/media/respira-cough-keyframes.webp'); background-size: 200% 100%; background-repeat: no-repeat; background-position: left center; }
+.film-patient-cough { background-position: right center; opacity: 0; }
+.film-choice-shade { position: absolute; inset: -1px; background: linear-gradient(90deg, #06131c 0, transparent 35%), linear-gradient(0deg, #06131c, transparent 24%, transparent 80%, #06131c 100%); }
+.film-choice::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, #06131c 4%, #06131cfa 25%, #06131c80 49%, transparent 73%), linear-gradient(0deg, #040e15, transparent 20%); }
+.film-choice-copy { position: absolute; left: 9vw; top: 50%; transform: translateY(-46%); z-index: 2; max-width: 580px; }
+.film-overline { display: flex; align-items: center; gap: 10px; color: #80d7dd; font-size: 10px; letter-spacing: .25em; font-weight: 600; margin: 0 0 28px; }
+.film-overline > span { display: block; height: 1px; width: 34px; background: #68c8d2; }
+.film-choice-copy h1 { font-size: clamp(40px, 4.5vw, 70px); font-weight: 550; line-height: 1.13; letter-spacing: -.045em; margin: 0; color: #f4f9fa; }
+.film-choice-copy h1 em { font-style: normal; color: #a8ccd2; font-weight: 350; }
+.film-choice-description { font-size: 15px; line-height: 1.75; color: #abc3cb; margin: 25px 0 32px; }
+.film-choice-actions { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; }
+.film-primary { display: inline-flex; gap: 12px; align-items: center; justify-content: center; min-height: 48px; padding: 14px 20px; background: #b3eff0; color: #08252d; border: 1px solid #c4f5f5; border-radius: 8px; font-size: 13px !important; font-weight: 650 !important; transition: background 180ms ease, transform 180ms ease; }
+.film-primary:hover { background: #e0ffff; transform: translateY(-2px); }
+.film-quiet { display: inline-flex; align-items: center; gap: 9px; min-height: 46px; color: #d0e2e7; background: none; border: 0; padding: 12px; font-size: 12px !important; }
+.film-quiet:hover { color: white; text-decoration: underline; text-underline-offset: 4px; }
+.film-sound-note { display: flex; align-items: center; gap: 8px; color: #91afb9; font-size: 10px; margin-top: 23px; }
+.film-stage { position: absolute; inset: 0; perspective: 1000px; overflow: hidden; }
+.film-patient-camera { position: absolute; height: 108%; aspect-ratio: 3 / 4; left: 50%; top: -2%; translate: -50% 0; transform-origin: 50% 58%; will-change: transform, opacity; animation: respira-patient-camera var(--film-length) both cubic-bezier(.42,0,.18,1); mask-image: linear-gradient(0deg, transparent, #000 15%, #000 89%, transparent); }
+.film-patient-camera .film-patient-cough { animation: respira-cough var(--film-length) both linear; }
+.film-thorax-camera { position: absolute; width: min(150vh, 120vw); aspect-ratio: 16 / 9; left: 50%; top: 50%; translate: -50% -45%; opacity: 0; transform-origin: 50% 62%; will-change: transform, opacity; animation: respira-enter-thorax var(--film-length) both cubic-bezier(.22,.7,.18,1); mask-image: radial-gradient(ellipse at 50% 55%, #000 35%, #000a 65%, transparent 80%); }
+.film-anatomy-plate { display: block; width: 100%; height: 100%; object-fit: contain; mask-image: linear-gradient(0deg, #000 0%, #000 62%, transparent 80%); animation: respira-breath var(--film-length) both ease-in-out; }
+.film-breath-light { position: absolute; inset: 31% 26% 5%; background: radial-gradient(ellipse at 27% 45%, #59cfd236, transparent 40%), radial-gradient(ellipse at 73% 45%, #59cfd236, transparent 40%); mix-blend-mode: screen; animation: respira-breath-light var(--film-length) both ease-in-out; }
+.film-thorax-scan, .film-radiograph-scan { position: absolute; inset: 0 20% auto; height: 1px; background: #9aeefa; box-shadow: 0 -16px 40px 15px #1d9fa336; opacity: 0; animation: respira-internal-scan var(--film-length) linear both; }
+.film-radiograph-camera { position: absolute; width: min(152vh, 110vw); aspect-ratio: 16 / 9; top: 50%; left: 50%; translate: -50% -50%; opacity: 0; will-change: transform, opacity; animation: respira-radiograph var(--film-length) both ease-in-out; }
+.film-radiograph-camera > img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.film-radiograph-scan { inset-inline: 15%; animation-name: respira-xray-scan; background: #ddf6ff; box-shadow: 0 -12px 35px 13px #72a3b233; }
+.film-region { position: absolute; left: 30%; top: 54%; width: 15%; height: 21%; opacity: 0; animation: respira-highlight var(--film-length) both ease-in-out; }
+.film-region > span { display: block; width: 100%; height: 100%; border-radius: 46% 54% 67% 33% / 49% 48% 52% 51%; background: radial-gradient(ellipse, #ffd7c27a 0%, #d95c5570 22%, #b9323838 43%, transparent 70%); filter: blur(6px); mix-blend-mode: screen; }
+.film-region > i { position: absolute; inset: 12%; border-radius: 50%; border: 1px solid #ffa49266; animation: respira-region-ring var(--film-length) both; }
+.film-region-caption { position: absolute; top: 69%; left: 16%; font-size: clamp(9px, 1vw, 12px); padding: 7px 10px; border-radius: 4px; color: #ffd7cd; background: #151c28cc; display: flex; align-items: center; gap: 6px; opacity: 0; animation: respira-highlight var(--film-length) both; }
+.film-region-caption i { width: 5px; height: 5px; border-radius: 50%; background: #ff9c88; }
+.film-image-corner { width: 30px; height: 30px; border: 1px solid #7cbbc899; position: absolute; }
+.film-corner-tl { left: 20%; top: 12%; border-right: 0; border-bottom: 0; }
+.film-corner-br { right: 20%; bottom: 12%; border-left: 0; border-top: 0; }
+.film-entry-light { position: absolute; inset: 0; opacity: 0; pointer-events: none; background: radial-gradient(ellipse at center, #9cdbdf88 0%, #6db8c119 27%, transparent 58%); animation: respira-entry-light var(--film-length) both ease-out; }
+.film-stage-shade { position: absolute; inset: 0; background: linear-gradient(0deg, #040e15f0, transparent 20%, transparent 80%, #040e15cc); }
+.film-scene-copy { position: absolute; z-index: 3; left: 7vw; bottom: 13vh; display: flex; gap: 16px; align-items: center; }
+.film-scene-number { display: flex; align-items: center; height: 47px; padding-right: 15px; border-right: 1px solid #5f9baf55; color: #6bbdc7; font-size: 28px; font-weight: 300; }
+.film-scene-copy > span:last-child { display: grid; gap: 7px; }
+.film-scene-copy small { color: #87aab8; letter-spacing: .25em; font-size: 9px; }
+.film-scene-copy strong { color: #e3f3f5; font-size: 17px; font-weight: 450; }
+.film-reveal { position: absolute; top: 50%; left: 9vw; transform: translateY(-43%); z-index: 4; max-width: 600px; animation: respira-copy-in 450ms both; }
+.film-reveal::before { content: ''; position: absolute; z-index: -1; inset: -15vh -13vw -15vh -10vw; background: radial-gradient(ellipse at 32% 55%, #040e15f2 0%, #040e15ca 46%, transparent 73%); pointer-events: none; }
+.film-reveal-symbol { height: 58px; width: 58px; color: #8ddde3; margin-bottom: 24px; }
+.film-reveal-symbol svg { width: 100%; height: 100%; }
+.film-reveal .film-overline { margin-bottom: 14px; font-size: 9px; }
+.film-reveal h1 { display: flex; gap: .07em; color: #f5fdff; font-size: clamp(45px, 6.4vw, 88px); letter-spacing: .045em; font-weight: 450; line-height: 1.1; margin: 0 0 13px; }
+.film-reveal h1 > span { display: inline-block; animation: respira-letter-in 650ms cubic-bezier(.19,1,.22,1) both; animation-delay: calc(var(--letter) * 48ms); }
+.film-reveal h2 { margin: 0; color: #aed1d8; font-size: clamp(12px, 1.3vw, 17px); font-weight: 450; letter-spacing: .035em; }
+.film-reveal-caption { margin: 25px 0; font-size: 14px; line-height: 1.7; color: #abc1cd; }
+.film-reveal > small { display: block; margin-top: 21px; max-width: 340px; color: #93afb9; font-size: 10px; line-height: 1.6; }
+.film-progress { position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: #224b5a40; }
+.film-progress > span { display: block; height: 100%; background: #77d3dd; transform-origin: left center; animation: respira-film-progress var(--film-length) linear both; }
+
+@keyframes respira-cough { 0%, 5% { opacity: 0; transform: translateY(0) rotate(0); } 8% { opacity: .95; transform: translateY(3px) rotate(.35deg); } 11% { opacity: 1; transform: translateY(8px) rotate(.75deg); } 17%, 100% { opacity: 0; transform: translateY(0) rotate(0); } }
+@keyframes respira-patient-camera { 0% { opacity: 1; transform: scale(.96) translateY(0); } 14% { opacity: 1; transform: scale(1.01) translateY(-.5%); } 21% { opacity: 1; transform: scale(1.18) translateY(-1.5%); } 27% { opacity: .92; transform: scale(1.75) translateY(-4%); } 34% { opacity: 0; transform: scale(3.15) translateY(-7%); } 100% { opacity: 0; transform: scale(3.15) translateY(-7%); } }
+@keyframes respira-enter-thorax { 0%, 23% { opacity: 0; transform: scale(1.58); } 30% { opacity: .72; transform: scale(1.38); } 38% { opacity: 1; transform: scale(1.18); } 48% { opacity: 1; transform: scale(1.1); } 57%, 100% { opacity: 0; transform: scale(1.04); } }
+@keyframes respira-breath { 0%, 29% { transform: scaleX(1) scaleY(1); } 38% { transform: scaleX(1.038) scaleY(1.019); } 45% { transform: scaleX(1) scaleY(1); } 53%, 100% { transform: scaleX(1.022) scaleY(1.01); } }
+@keyframes respira-breath-light { 0%, 28% { opacity: 0; } 37% { opacity: 1; } 43% { opacity: .3; } 50% { opacity: 1; } 57%, 100% { opacity: 0; } }
+@keyframes respira-internal-scan { 0%, 28% { opacity: 0; transform: translateY(12px); } 30% { opacity: .85; transform: translateY(100px); } 43% { opacity: .65; transform: translateY(450px); } 46%, 100% { opacity: 0; transform: translateY(520px); } }
+@keyframes respira-radiograph { 0%, 45% { opacity: 0; transform: scale(1.1); filter: blur(8px); } 53% { opacity: .9; transform: scale(1.035); filter: blur(1px); } 61% { opacity: 1; transform: scale(1); filter: blur(0); } 78% { opacity: 1; transform: translateX(8vw) scale(.96); } 86%, 100% { opacity: .7; transform: translateX(21vw) scale(.91); filter: blur(0); } }
+@keyframes respira-xray-scan { 0%, 51% { opacity: 0; transform: translateY(25px); } 53% { opacity: .9; transform: translateY(60px); } 64% { opacity: .8; transform: translateY(490px); } 66%, 100% { opacity: 0; transform: translateY(570px); } }
+@keyframes respira-highlight { 0%, 60% { opacity: 0; transform: scale(.8); } 64% { opacity: .95; transform: scale(1.04); } 70% { opacity: .68; transform: scale(.98); } 73% { opacity: 1; transform: scale(1.05); } 82%, 100% { opacity: .16; transform: scale(1); } }
+@keyframes respira-region-ring { 0%, 60% { opacity: 0; transform: scale(.6); } 65% { opacity: .8; transform: scale(1); } 74% { opacity: 0; transform: scale(1.55); } 100% { opacity: 0; } }
+@keyframes respira-entry-light { 0%, 23% { opacity: 0; transform: scale(.55); } 26% { opacity: .6; transform: scale(1.25); } 31%, 100% { opacity: 0; transform: scale(2); } }
+@keyframes respira-copy-in { from { opacity: 0; translate: 0 10px; } to { opacity: 1; translate: 0 0; } }
+@keyframes respira-letter-in { from { opacity: 0; transform: translateY(25px); filter: blur(8px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
+@keyframes respira-film-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.film-static { --film-length: 2.2s; }
+.film-static .film-patient-camera, .film-static .film-thorax-camera, .film-static .film-region, .film-static .film-region-caption, .film-static .film-entry-light, .film-static .film-radiograph-scan { display: none; }
+.film-static .film-radiograph-camera { animation: none; opacity: .5; transform: translateX(21vw) scale(.91); }
+.film-static .film-reveal, .film-static .film-reveal h1 > span { animation: none; }
+
+@media (max-width: 1024px) {
+  .film-choice-copy, .film-reveal { left: 6vw; }
+  .film-choice-copy h1 { font-size: clamp(36px, 5.8vw, 58px); }
+  .film-choice-art { right: 0; }
+  .film-mark > span { font-size: 8px; }
+}
+@media (max-width: 640px) {
+  .film-topbar { padding: 15px 18px; }
+  .film-mark > span { display: none; }
+  .film-mark svg { width: 36px; height: 36px; }
+  .film-skip { font-size: 11px !important; padding: 10px 14px; }
+  .film-choice-art { height: 65%; width: auto; right: 50%; translate: 50% 0; opacity: .75; }
+  .film-choice::after { background: linear-gradient(0deg, #040e15 9%, #040e15f5 25%, #040e1599 46%, transparent 69%); }
+  .film-choice-copy { left: 25px; right: 25px; top: auto; bottom: max(77px, 11vh); transform: none; max-width: none; }
+  .film-choice-copy h1 { font-size: clamp(32px, 9vw, 45px); }
+  .film-overline { font-size: 8px; margin-bottom: 14px; }
+  .film-choice-description { font-size: 12px; line-height: 1.6; margin: 16px 0 20px; }
+  .film-choice-actions { gap: 6px; }
+  .film-choice-actions .film-primary { width: 100%; }
+  .film-choice-actions .film-quiet { justify-content: center; width: 100%; }
+  .film-sound-note { margin-top: 8px; font-size: 9px; }
+  .film-footer { left: 20px; right: 20px; bottom: 19px; font-size: 8px; }
+  .film-footer-right { display: none !important; }
+  .film-patient-camera { height: 88%; top: 2%; }
+  .film-thorax-camera { width: 190vw; }
+  .film-radiograph-camera { width: 173vw; }
+  .film-scene-copy { bottom: 14vh; left: 25px; }
+  .film-scene-copy strong { font-size: 14px; }
+  .film-reveal { top: auto; bottom: max(85px, 12vh); transform: none; left: 25px; right: 25px; }
+  .film-reveal::before { inset: -100px -60px -130px; background: linear-gradient(0deg, #040e15 27%, #040e15e8 67%, transparent); }
+  .film-reveal h1 { font-size: clamp(39px, 12vw, 61px); }
+  .film-reveal-symbol { width: 42px; height: 42px; margin-bottom: 14px; }
+  .film-reveal-caption { font-size: 12px; margin: 17px 0; }
+  .film-reveal > small { font-size: 9px; max-width: 270px; margin-top: 15px; }
+}
+@media (max-height: 520px) and (min-width: 641px) {
+  .film-topbar { padding-top: 12px; }
+  .film-reveal-symbol { display: none; }
+  .film-choice-copy h1 { font-size: 35px; }
+  .film-choice-description { margin: 12px 0; }
+  .film-reveal-caption { margin: 10px 0; }
+  .film-reveal { top: 48%; }
+  .film-reveal h1 { font-size: 50px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .respira-film *, .respira-film *::before, .respira-film *::after { animation: none !important; transition: none !important; }
+  .respira-film .film-patient-camera, .respira-film .film-thorax-camera, .respira-film .film-entry-light, .respira-film .film-region, .respira-film .film-region-caption, .respira-film .film-radiograph-scan { display: none; }
+  .respira-film .film-radiograph-camera { opacity: .5; transform: translateX(20vw); }
+}
+
+/* Auto-start cinematic composition; optional footage occupies the same timeline. */
+.film-preparing { position:absolute; inset:0; display:grid; place-items:center; overflow:hidden; }
+.film-preparing .film-patient-still { opacity:.5; width:min(85vh,80vw); height:90%; position:absolute; right:6vw; bottom:0; }
+.film-preparing>span { z-index:1; position:absolute; bottom:18vh; left:8vw; font-size:clamp(22px,4vw,48px); color:#e8fcfc; }
+.film-patient-camera { transform-origin:50% 59%; }
+.film-opening { display:flex; align-items:center; gap:14px; color:#b0e8e5; font-size:13px; margin-top:25px; }
+.film-real-footage { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:2; transition:opacity .7s ease; }
+.film-has-video .film-patient-camera,.film-has-video .film-thorax-camera { visibility:hidden; }
+.film-has-video[data-scene=brand] .film-real-footage { opacity:0; }
+.film-has-video .film-radiograph-camera { z-index:1; }
+.film-reveal { animation:respira-reveal-v4 .8s cubic-bezier(.16,1,.3,1) both; }
+.film-reveal h1 { text-shadow:0 4px 40px #96e9e913; }
+@keyframes respira-reveal-v4 { from { opacity:0; filter:blur(7px); translate:0 12px; } to { opacity:1; filter:blur(0); translate:0 0; } }
+@keyframes respira-cough { 0%,4% { opacity:0; transform:translateY(0) rotate(0); } 7% { opacity:.72; transform:translateY(3px) rotate(.25deg); } 10% { opacity:1; transform:translateY(7px) rotate(.55deg); } 13% { opacity:.5; transform:translateY(2px) rotate(-.12deg); } 17% { opacity:.82; transform:translateY(5px) rotate(.3deg); } 21%,100% { opacity:0; transform:translateY(0) rotate(0); } }
+.film-static .film-reveal { animation:none; }

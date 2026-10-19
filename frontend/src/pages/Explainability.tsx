@@ -1,116 +1,266 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
-import { api, DISEASES } from "../services/api";
+import { useEffect, useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { ArrowLeft, Eye, Info, Layers3 } from "lucide-react";
+import { api, DISEASES, type AnalysisDetail } from "../services/api";
 import { useAuth } from "../context/AuthContext";
-
-type Gx = { image: string; heatmap: string; overlay: string; target_class?: string; attention_map?: number[][]; explanation?: string };
-
+import { useResource, useWorkspace } from "../context/WorkspaceContext";
+import { Alert, LoadingBlock, PageHeader } from "../components/UI";
+import { Disclaimer } from "../components/widgets";
+import { XrayViewer, type ViewerMode } from "../components/XrayViewer";
+import { errorText } from "../utils/display";
+import { explanationImages, explanationKey, type ExplanationResult as Gx } from "../services/explanationImages";
+type Method = "gradcam" | "vit";
+type ResultState = { key: string; data?: Gx; loading: boolean; error: string };
 export function Explainability() {
-  const { id } = useParams();
+  const { id = "" } = useParams();
   const { token } = useAuth();
-  const [tab, setTab] = useState<"overview" | "gradcam" | "vit">("overview");
+  const { cache } = useWorkspace();
+  const analysis = useResource<AnalysisDetail>(
+    id ? "analysis:" + id : null,
+    () => api.get("/api/v1/analysis/" + id, token),
+  );
+  const [method, setMethod] = useState<Method>("gradcam");
   const [disease, setDisease] = useState(0);
-  const [opacity, setOpacity] = useState(0.5);
-  const [mode, setMode] = useState<"overlay" | "side">("overlay");
-  const [grad, setGrad] = useState<Gx | null>(null);
-  const [vit, setVit] = useState<Gx | null>(null);
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-
-  const loadGrad = async (idx: number) => {
-    setBusy("gradcam"); setError("");
+  const [mode, setMode] = useState<ViewerMode>("overlay");
+  const [opacity, setOpacity] = useState(1);
+  const requestKey = explanationKey(id, analysis.data?.model.version || "", method, disease);
+  const current = useRef(requestKey);
+  const [state, setState] = useState<ResultState>({
+    key: requestKey,
+    loading: false,
+    error: "",
+  });
+  useEffect(() => {
+    if (analysis.data) {
+      const found = DISEASES.indexOf(analysis.data.prediction.primary_class);
+      if (found >= 0) setDisease(found);
+    }
+  }, [analysis.data]);
+  useEffect(() => {
+    setOpacity(1);
+    setMode("overlay");
+    current.current = requestKey;
+    setState({
+      key: requestKey,
+      data: cache.peek<Gx>(requestKey),
+      loading: false,
+      error: "",
+    });
+  }, [requestKey, cache]);
+  const supported =
+    method === "gradcam"
+      ? analysis.data?.explainability.gradcam
+      : analysis.data?.explainability.vit_attention;
+  async function load(force = false) {
+    if (force) cache.invalidate(requestKey);
+    const key = requestKey;
+    current.current = key;
+    setState({ key, data: cache.peek<Gx>(key), loading: true, error: "" });
     try {
-      const form = new FormData();
-      form.append("target_class", String(idx));
-      if (id) form.append("analysis_id", id);
-      setGrad(await api.postForm<Gx>("/api/v1/explainability/gradcam", form, token));
-    } catch (e) { setError(e instanceof Error ? e.message : "Grad-CAM failed"); }
-    finally { setBusy(""); }
-  };
-  const loadVit = async () => {
-    setBusy("vit"); setError("");
-    try {
-      const form = new FormData();
-      if (id) form.append("analysis_id", id);
-      setVit(await api.postForm<Gx>("/api/v1/explainability/vit-attention", form, token));
-    } catch (e) { setError(e instanceof Error ? e.message : "ViT attention failed"); }
-    finally { setBusy(""); }
-  };
-
+      const data = await cache.get<Gx>(key, async () => {
+        const form = new FormData();
+        form.append("analysis_id", id);
+        if (method === "gradcam") form.append("target_class", String(disease));
+        return api.postForm<Gx>(
+          method === "gradcam"
+            ? "/api/v1/explainability/gradcam"
+            : "/api/v1/explainability/vit-attention",
+          form,
+          token,
+        );
+      });
+      if (current.current === key)
+        setState({ key, data, loading: false, error: "" });
+    } catch (e) {
+      cache.invalidate(key);
+      if (current.current === key)
+        setState({ key, loading: false, error: errorText(e) });
+    }
+  }
+  const shown =
+    state.key === requestKey
+      ? state
+      : {
+          key: requestKey,
+          data: cache.peek<Gx>(requestKey),
+          loading: false,
+          error: "",
+        };
+  if (analysis.loading)
+    return <LoadingBlock label="Loading explanation workspace…" />;
+  if (analysis.error || !analysis.data)
+    return (
+      <Alert retry={analysis.reload}>
+        {analysis.error || "Analysis details are unavailable."}
+      </Alert>
+    );
+  const a = analysis.data;
+  const media = shown.data ? explanationImages(shown.data) : null;
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Explainability</h1>
-      <div className="flex gap-1" role="tablist">
-        {(["overview", "gradcam", "vit"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-            className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === t ? "bg-brand-600 text-white" : "bg-white border border-slate-200 text-slate-600"}`}>
-            {t === "overview" ? "Overview" : t === "gradcam" ? "Grad-CAM" : "ViT Attention"}</button>
-        ))}
+    <div className="stack explainability-page">
+      <Link className="text-button" to={"/analysis/" + id}>
+        <ArrowLeft size={16} />
+        Back to summary
+      </Link>
+      <PageHeader
+        eyebrow="Visual explanation"
+        title="What the model highlighted"
+        description={
+          a.patient.name +
+          " · " +
+          a.prediction.primary_class +
+          " primary model output"
+        }
+      />
+      <div className="explanation-controls">
+        <div className="explanation-control-intro">
+          <span className="explanation-control-icon"><Layers3 size={19} /></span>
+          <span><strong>Choose the evidence view</strong><small>Requests run only when you select Generate.</small></span>
+        </div>
+        <div>
+          <span className="label">Explanation method</span>
+          <div className="page-actions">
+            <button
+              className={method === "gradcam" ? "btn-primary" : "btn-ghost"}
+              onClick={() => setMethod("gradcam")}
+            >
+              <Layers3 size={17} />
+              Grad-CAM
+            </button>
+            <button
+              className={method === "vit" ? "btn-primary" : "btn-ghost"}
+              onClick={() => setMethod("vit")}
+            >
+              <Eye size={17} />
+              ViT attention
+            </button>
+          </div>
+        </div>
+        {method === "gradcam" && (
+          <div>
+            <label className="label" htmlFor="explain-class">
+              Target class
+            </label>
+            <select
+              id="explain-class"
+              className="input"
+              value={disease}
+              onChange={(e) => setDisease(Number(e.target.value))}
+            >
+              {DISEASES.map((d, i) => (
+                <option value={i} key={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div>
+          <span className="label">Request</span>
+          <button
+            className="btn-primary"
+            disabled={!supported || shown.loading}
+            onClick={() => void load(Boolean(shown.data))}
+          >
+            {shown.loading ? (
+              <>
+                <span className="spin" />
+                Generating explanation…
+              </>
+            ) : shown.data ? (
+              "Regenerate explanation"
+            ) : (
+              "Generate explanation"
+            )}
+          </button>
+        </div>
       </div>
-      {error && <div role="alert" className="card border-rose-200 p-3 text-sm text-rose-700">{error}</div>}
-
-      {tab === "overview" && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="card space-y-2 p-5">
-            <h2 className="font-semibold">Grad-CAM vs ViT Attention</h2>
-            <p className="text-sm text-slate-600">Grad-CAM highlights spatial regions contributing to the CNN prediction, while ViT attention visualizes attention within the transformer representation.</p>
-            <div className="flex gap-2">
-              <button className="btn-primary" onClick={() => { setTab("gradcam"); void loadGrad(disease); }}>View Grad-CAM</button>
-              <button className="btn-ghost" onClick={() => { setTab("vit"); void loadVit(); }}>View ViT Attention</button>
-            </div>
+      {!supported && (
+        <Alert kind="warning">
+          This explanation method is not reported as available for this
+          analysis.
+        </Alert>
+      )}
+      {shown.error && <Alert retry={() => void load()}>{shown.error}</Alert>}
+      {!shown.data && !shown.loading && supported && (
+        <div className="viewer">
+          <div className="viewer-empty">
+            <Layers3 size={34} />
+            <strong>No explanation requested yet</strong>
+            <span>
+              Generate only the method and target class you want to review.
+            </span>
+            <button className="btn-light" onClick={() => void load(Boolean(shown.data))}>
+              Generate {method === "gradcam" ? "Grad-CAM" : "ViT attention"}
+            </button>
           </div>
-          <div className="card p-5 text-sm text-slate-600">Select a disease to explain a specific class. Heatmaps are computed live by the backend from the trained checkpoints — never mocked.</div>
         </div>
       )}
-
-      {tab === "gradcam" && (
-        <div className="card space-y-3 p-5">
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="label" htmlFor="dis">Disease</label>
-            <select id="dis" className="input max-w-xs" value={disease} onChange={(e) => { const v = Number(e.target.value); setDisease(v); void loadGrad(v); }}>
-              {DISEASES.map((d, i) => <option key={d} value={i}>{d}</option>)}
-            </select>
-            <label className="label" htmlFor="op">Overlay opacity</label>
-            <input id="op" type="range" min={0} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} aria-label="Heatmap opacity" />
-            <select className="input max-w-40" value={mode} onChange={(e) => setMode(e.target.value as "overlay" | "side")} aria-label="View mode">
-              <option value="overlay">Overlay</option><option value="side">Side-by-side</option>
-            </select>
-            <button className="btn-ghost" onClick={() => void loadGrad(disease)}>{busy === "gradcam" ? "Loading…" : "Reload"}</button>
-          </div>
-          {!grad ? <p className="text-sm text-slate-500">{busy === "gradcam" ? "Generating Grad-CAM…" : "No heatmap yet."}</p> : mode === "overlay" ? (
-            <div className="relative mx-auto max-w-md">
-              <img src={grad.image} alt="Original X-ray" className="w-full rounded-lg" />
-              <img src={grad.heatmap} alt={`Grad-CAM heatmap for ${DISEASES[disease]}`} className="absolute inset-0 w-full rounded-lg" style={{ opacity }} />
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <figure><img src={grad.image} alt="Original X-ray" className="rounded-lg border" /><figcaption className="text-xs text-slate-500">Original</figcaption></figure>
-              <figure><img src={grad.heatmap} alt="Grad-CAM heatmap" className="rounded-lg border" /><figcaption className="text-xs text-slate-500">Heatmap</figcaption></figure>
-              <figure><img src={grad.overlay} alt="Grad-CAM overlay" className="rounded-lg border" /><figcaption className="text-xs text-slate-500">Overlay</figcaption></figure>
-            </div>
-          )}
-        </div>
+      {shown.loading && !shown.data && (
+        <LoadingBlock
+          label={
+            method === "gradcam"
+              ? "Generating Grad-CAM…"
+              : "Generating ViT attention…"
+          }
+        />
       )}
-
-      {tab === "vit" && (
-        <div className="card space-y-3 p-5">
-          <div className="flex gap-2">
-            <button className="btn-primary" onClick={() => void loadVit()}>{busy === "vit" ? "Loading…" : vit ? "Reload" : "Generate ViT attention"}</button>
-            <select className="input max-w-40" value={mode} onChange={(e) => setMode(e.target.value as "overlay" | "side")} aria-label="View mode">
-              <option value="overlay">Overlay</option><option value="side">Side-by-side</option>
-            </select>
-          </div>
-          {!vit ? <p className="text-sm text-slate-500">{busy === "vit" ? "Generating ViT attention…" : "No attention map yet."}</p> : mode === "overlay" ? (
-            <img src={vit.overlay} alt="ViT attention overlay" className="mx-auto max-w-md rounded-lg border" />
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <figure><img src={vit.image} alt="Original X-ray" className="rounded-lg border" /><figcaption className="text-xs text-slate-500">Original</figcaption></figure>
-              <figure><img src={vit.heatmap} alt="ViT attention map" className="rounded-lg border" /><figcaption className="text-xs text-slate-500">Attention map</figcaption></figure>
-              <figure><img src={vit.overlay} alt="ViT attention overlay" className="rounded-lg border" /><figcaption className="text-xs text-slate-500">Overlay</figcaption></figure>
-            </div>
-          )}
-        </div>
+      {media?.original && (media.overlay || media.heatmap) && (
+        <XrayViewer key={requestKey} original={media.original} overlay={media.overlay} map={media.heatmap}
+          mapLabel={method === "gradcam" ? "Grad-CAM · " + DISEASES[disease] : "ViT attention"}
+          mode={mode} setMode={setMode} opacity={opacity} setOpacity={setOpacity} />
       )}
+      {shown.data && (!media?.original || !(media.overlay || media.heatmap)) && (
+        <Alert kind="warning">This response is missing a usable study image or explanation. Please regenerate this method.</Alert>
+      )}
+      <div className="two-col">
+        <section className="explanation-card">
+          <Info size={21} />
+          <div>
+            <p className="eyebrow">
+              {method === "gradcam"
+                ? "CNN attribution"
+                : "Transformer attention"}
+            </p>
+            <h2>
+              {method === "gradcam"
+                ? "About this Grad-CAM map"
+                : "About this ViT attention map"}
+            </h2>
+            <p>
+              {method === "gradcam"
+                ? "This map highlights image regions associated with the selected CNN class output. It does not prove that a lesion is present or explain every part of the fusion model."
+                : "This map visualizes attention within the ViT representation. Attention is not a verified lesion outline and does not by itself establish the reason for the final fusion output."}
+            </p>
+          </div>
+        </section>
+        <section className="panel">
+          <p className="eyebrow">Shown labels</p>
+          <dl className="detail-list">
+            <div>
+              <dt>Analysis</dt>
+              <dd className="mono">{id.slice(0, 8)}</dd>
+            </div>
+            <div>
+              <dt>Method</dt>
+              <dd>{method === "gradcam" ? "Grad-CAM" : "ViT attention"}</dd>
+            </div>
+            <div>
+              <dt>Target class</dt>
+              <dd>
+                {method === "gradcam"
+                  ? DISEASES[disease]
+                  : "Not class-selectable"}
+              </dd>
+            </div>
+            <div>
+              <dt>Model</dt>
+              <dd>{a.model.version || "Unavailable"}</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+      <Disclaimer />
     </div>
   );
 }

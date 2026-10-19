@@ -1,10 +1,22 @@
-import { Navigate } from "react-router-dom";
-import type { ReactNode } from "react";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-
-export function ProtectedRoute({ children }: { children: ReactNode }) {
+import { LoadingBlock } from "./UI";
+export function ProtectedRoute() {
   const { doctor, token, loading } = useAuth();
-  if (loading) return <div className="min-h-screen grid place-items-center text-slate-500">Loading Respira…</div>;
-  if (!token || !doctor) return <Navigate to="/login" replace />;
-  return <>{children}</>;
+  const location = useLocation();
+  if (loading)
+    return (
+      <main className="main-content">
+        <LoadingBlock label="Opening RESPIRA…" />
+      </main>
+    );
+  if (!token || !doctor)
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location.pathname + location.search }}
+      />
+    );
+  return <Outlet />;
 }
