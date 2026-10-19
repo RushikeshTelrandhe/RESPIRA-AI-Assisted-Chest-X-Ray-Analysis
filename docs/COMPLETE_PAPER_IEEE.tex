@@ -1,0 +1,549 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=black,
+    urlcolor=blue
+}
+
+\begin{document}
+
+\title{RESPIRA: An Explainable and Uncertainty-Aware High-Resolution Hybrid Deep Learning Framework for Multi-Class Thoracic Disease Classification}
+
+\author{Siddhant Dongre, Rushikesh Telrandhe
+\thanks{Manuscript received March 2026. The authors are with the Department of Artificial Intelligence, G. H. Raisoni College of Engineering, Nagpur, India.}
+}
+
+\markboth{IEEE Transactions on Medical Imaging,~Vol.~XX, No.~XX, Month~2026}%
+{Dongre and Telrandhe: RESPIRA Framework}
+
+\maketitle
+
+\begin{abstract}
+Automated chest X-ray (CXR) interpretation is essential for clinical triage, yet conventional deep learning models suffer from severe inductive bias trade-offs, spatial downsampling artifacts, uncalibrated predictive overconfidence, and opaque decision mechanisms. In this work, we propose \textbf{RESPIRA}, an end-to-end clinical AI framework combining high-resolution representation learning, hybrid convolutional-transformer fusion, calibrated uncertainty estimation, and dual-modality visual explainability. The proposed architecture couples EfficientNet-B0 (for localized textural lesions) with Vision Transformer ViT-B/16 (for global thoracic contextual reasoning). A deterministic preprocessing pipeline incorporates Contrast Limited Adaptive Histogram Equalization (CLAHE) and heuristic morphological lung field segmentation. To optimize diagnostic accuracy, we introduce both a high-resolution ($512 \times 512$) weighted probability fusion pipeline ($\alpha^* = 0.35$ EfficientNet + $0.65$ ViT) and an advanced multi-stage latent feature fusion pipeline featuring bidirectional cross-attention, six disease-conditioned query embeddings, and inter-disease relational self-attention modeling. Furthermore, RESPIRA integrates dual uncertainty quantification (normalized binary entropy and decision margin) with a 3-tier clinical triage rule, alongside a quantitative dual-modality explainability audit comparing Grad-CAM and ViT cross-attention mappings. Evaluated on an independent test cohort of 1,947 radiographs, RESPIRA achieves a test classification accuracy of \textbf{92.45\%}, a Macro F1-score of \textbf{93.85\%}, and a Macro ROC-AUC of \textbf{0.9910}, with a 93.73\% cross-modality explanation agreement rate. The entire framework is deployed into an authenticated asynchronous clinical platform with automated diagnostic PDF generation.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Chest X-Ray Classification, Vision Transformer, EfficientNet, Multi-Modal Model Fusion, Explainable AI, Grad-CAM, Uncertainty Estimation, Medical Image Analysis.
+\end{IEEEkeywords}
+
+\section{Introduction}
+\label{sec:introduction}
+Thoracic diseases, including bacterial pneumonia, viral pneumonia, pulmonary edema, atelectasis, and tuberculosis, represent leading contributors to global morbidity and mortality. Chest radiography (CXR) serves as the primary diagnostic imaging modality worldwide due to its cost-effectiveness, low radiation dose, and widespread availability. However, clinical interpretation requires expert radiologists to detect subtle textural opacities, pleural effusions, and anatomical asymmetries, which is constrained by severe radiologist shortages in resource-constrained regions.
+
+While deep learning architectures have demonstrated high diagnostic sensitivity, existing computer-aided detection systems face several critical challenges: 1) reliance on low-resolution inputs ($224 \times 224$) that discard fine apical nodules and reticular opacities; 2) inductive bias trade-offs between local convolutional operators and global self-attention transformers; 3) lack of predictive uncertainty quantification leading to silent diagnostic errors; and 4) lack of dual-modality explainability auditing. To resolve these challenges, this study presents the complete design and clinical deployment of \textbf{RESPIRA}.
+
+\section{Literature Review}
+\label{sec:literature_review}
+
+The pre-existing literature studies summarized in Table~\ref{tab:literature_review} provide strong evidence for the rapid evolution of deep learning, Vision Transformers, and hybrid fusion architectures for pulmonary disease detection using chest radiographs (CXRs). The literature is organized in reverse chronological order from 2026 down to 2024.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{1.2pt}
+\scriptsize
+\caption{Related Work on Pulmonary Disease Detection Using Deep Learning Techniques}
+\label{tab:literature_review}
+\centering
+\begin{tabular}{|>{\centering\arraybackslash}p{0.55cm}|>{\raggedright\arraybackslash}p{1.40cm}|>{\raggedright\arraybackslash}p{1.95cm}|>{\raggedright\arraybackslash}p{1.85cm}|>{\raggedright\arraybackslash}p{2.45cm}|}
+\hline
+\textbf{Year} & \textbf{Author(s)} & \textbf{Title of the Paper} & \textbf{Methods Used} & \textbf{Research Gap} \\
+\hline
+2026 & Shukla \textit{et al.} \cite{shukla2026chest} & Chest X-Ray Classification using Deep Learning Framework with Image Enhancement & Contrast enhancement + CLAHE + deep CNN classifiers (EfficientNet-B0) & Restricted to 3-class classification without multi-label support; relies on single CNN lacking global context and predictive uncertainty. \\
+\hline
+2026 & Altun \& Candemir \cite{altun2026differential} & Differential Evolution-Based CNN-Transformer Fusion for Thoracic Disease Classification from Chest X-Rays & Metaheuristic Differential Evolution (DE) search for CNN-Transformer feature fusion & Lacks external multi-center validation, relies on noisy NLP-extracted reports (NIH CXR), and omits calibrated uncertainty bounds. \\
+\hline
+2025 & Pandit \textit{et al.} \cite{pandit2025explainable} & Explainable Deep Learning for Lung Disease Detection: A Comparative Study Using Grad-CAM & DenseNet-121, ResNet-50, VGG-16, InceptionV3 + Grad-CAM & Restricted to standalone CNN backbones lacking global attention; visual explanations rely only on qualitative Grad-CAM without uncertainty triage. \\
+\hline
+2025 & Kansal \textit{et al.} \cite{kansal2025cxr} & CXR-ViT: A Transformer-Based Framework for Enhanced Chest X-Ray Classification & Pure Vision Transformer (ViT) with patch self-attention & Standalone Vision Transformer struggles to capture fine-grained localized parenchymal textures and micro-opacities without CNN inductive bias. \\
+\hline
+2025 & Ghosh \textit{et al.} \cite{ghosh2025vision} & Vision Transformers Excel in Chest X-Ray Analysis & ViT-B/16 benchmarked on NIH ChestX-ray14 dataset & Evaluates ViT and CNN architectures purely as isolated standalone models without hybrid fusion; suffers from poor F1 on tail classes. \\
+\hline
+2025 & Rafi \textit{et al.} \cite{rafi2025chest} & Chest X-ray Analysis for Pneumonia and Tuberculosis Detection using CNNs and Vision Transformers with Explainable AI & Comparative CNN vs. ViT evaluation + saliency mapping & Compares CNN and ViT models as separate uncoupled streams rather than fusing features; confined to 3-class data without multi-label support. \\
+\hline
+2025 & Kim \textit{et al.} \cite{kim2025explainable} & Explainable AI for Multi-Label Chest X-ray Diagnosis: Layer-wise Grad-CAM with Hierarchical Feature Extraction & U-Net encoder-decoder + multi-layer Grad-CAM & Relies strictly on convolutional representations without self-attention for global thoracic dependencies, lacking quantitative concordance auditing. \\
+\hline
+2025 & Dey \cite{dey2025cbam} & CBAM-Enhanced DenseNet121 for Multi-Class Chest X-Ray Classification with Grad-CAM Explainability & DenseNet-121 + CBAM (Channel \& Spatial Attention) & Restricted to single-institution pediatric dataset with potential label noise from metadata filenames; lacks external multi-disease cohort validation. \\
+\hline
+2025 & Naghash \textit{et al.} \cite{naghash2025hycovit} & HyCoViT: Hybrid Convolution Vision Transformer With Dynamic Dropout for Enhanced Medical Chest X-Ray Classification & Hybrid CNN-ViT architecture + dynamic dropout & Combines CNN and ViT features but lacks multi-stage cross-attention alignment and disease-conditioned query modeling; omits uncertainty quantification. \\
+\hline
+2025 & Fu \textit{et al.} \cite{fu2025davit} & DAViT: A Domain-Adapted Vision Transformer for Automated Pneumonia Detection and Explanation & Domain-adapted Vision Transformer with specialized pretraining & Restricted to binary/ternary pneumonia detection; fails to generalize to comprehensive thoracic pathologies and lacks uncertainty-based triage. \\
+\hline
+2025 & Vibina \cite{vibina2025deep} & Deep CNN-Driven Automated Lung Disease Identification & Deep CNN classification pipeline for pulmonary lesions & Dependent on single-center datasets and pure CNN extractors with limited receptive fields; lacks self-attention and confidence calibration. \\
+\hline
+2025 & Pabba \textit{et al.} \cite{pabba2025explainable} & Explainable Artificial Intelligence for Pulmonary Disease Detection from Chest Radiographs & XAI saliency mapping on CNN architectures & Highlights that existing literature predominantly focuses on post-hoc visual heatmaps without quantitative validation or clinical trust metrics. \\
+\hline
+2025 & Qi \cite{qi2025attention} & Attention Mechanisms in Medical Image Analysis: Advance, Challenge, and Future Direction & Survey of spatial, channel, and self-attention in medical vision & Identifies high computational complexity, lack of cross-modal adaptability, and scarcity of lightweight hybrid architectures with uncertainty feedback. \\
+\hline
+2025 & Edirisinghe \textit{et al.} \cite{edirisinghe2025abnormality} & Chest X-Ray Report Generation Using Abnormality Guided Vision Language Model & Abnormality-guided multimodal vision-language model (META-CXR) & High computational footprint and complex vision-language decoding cause heavy latency, making lightweight offline desktop deployment impractical. \\
+\hline
+2024 & Barra \textit{et al.} \cite{barra2024comparative} & A Comparative Analysis of XAI Techniques for Medical Imaging: Challenges and Opportunities & Comparative study of Grad-CAM, LIME, and SHAP on medical images & Perturbation methods (LIME/SHAP) are computationally prohibitive for clinical workflows, while Grad-CAM suffers from coarse spatial granularity. \\
+\hline
+2024 & Yaligar \textit{et al.} \cite{yaligar2024state} & State-of-the-Art Deep Learning Strategies for Multi-Label Classification of Chest X-Ray Thoracic Disorders & Densely connected and deep residual CNN architectures & Pure CNN models struggle with long-range bilateral thoracic dependencies; exhibits poor sensitivity on tail pathologies without uncertainty estimation. \\
+\hline
+\end{tabular}
+\end{table}
+
+Foundational studies conducted in 2024 established core benchmarks and architectural trade-offs in computer-aided thoracic diagnosis. Yaligar \textit{et al.} \cite{yaligar2024state} benchmarked dense residual convolutional architectures across multi-label disorders, revealing that while deep CNNs achieve high diagnostic AUCs, localized convolutional kernels struggle to model long-range spatial correlations across bilateral lung fields. Concurrently, Barra \textit{et al.} \cite{barra2024comparative} evaluated explainable AI techniques across clinical radiography, demonstrating that gradient-weighted saliency methods (Grad-CAM) provide computationally viable heatmaps compared to computationally prohibitive perturbation frameworks such as LIME and SHAP.
+
+Throughout 2025, investigations focused on evaluating Vision Transformers alongside convolutional models. Pure transformer models such as CXR-ViT by Kansal \textit{et al.} \cite{kansal2025cxr} and large-scale benchmarks by Ghosh \textit{et al.} \cite{ghosh2025vision} proved that patch-level self-attention excels at capturing diffuse thoracic patterns (such as cardiomegaly and pulmonary edema) that local convolutions struggle to aggregate. To combine local textural inductive bias with global contextual embeddings, Rafi \textit{et al.} \cite{rafi2025chest} and Naghash \textit{et al.} \cite{naghash2025hycovit} (HyCoViT) demonstrated that hybrid CNN-ViT architectures mitigate overfitting in data-constrained medical regimes. Furthermore, attention-enhanced CNNs like CBAM-DenseNet121 \cite{dey2025cbam}, DAViT \cite{fu2025davit}, Vibina \cite{vibina2025deep}, Qi \cite{qi2025attention}, abnormality-guided report generation \cite{edirisinghe2025abnormality}, and explainability frameworks like layer-wise Grad-CAM \cite{pandit2025explainable}, \cite{kim2025explainable}, \cite{pabba2025explainable} enhanced localized sensitivity and clinician trust.
+
+Most recently in 2026, research prioritized holistic diagnostic frameworks. Shukla \textit{et al.} \cite{shukla2026chest} confirmed that contrast enhancement and CLAHE preprocessing directly govern classification fidelity across diverse scanner sources. Altun and Candemir \cite{altun2026differential} demonstrated that differential evolution-guided feature combinations between convolutional and self-attention representations achieve superior thoracic pathology discrimination compared to standalone backbones.
+
+Despite these advancements, pre-existing literature leaves four critical gaps: 1) pervasive spatial downsampling to $224 \times 224$ pixels, discarding fine reticular and apical markers; 2) heuristic fusion strategies without disease-conditioned relational modeling; 3) lack of calibrated uncertainty triage in clinical workflows; and 4) absence of quantitative dual-modality explainability audits across CNN and transformer backbones. The proposed RESPIRA framework systematically resolves these limitations through high-resolution representation learning, dual-backbone modeling (EfficientNet-B0 + ViT-B/16), multi-modal fusion, calibrated uncertainty triage, and paired visual explainability.
+
+\section{Methodology}
+\label{sec:methodology}
+
+The proposed RESPIRA system addresses the diagnostic challenges of multi-class thoracic pathology classification by integrating high-resolution representation learning, a hybrid convolutional-transformer backbone, multi-modal probability and feature fusion, calibrated uncertainty estimation, and rigorous dual-branch explainability. Fig.~\ref{fig:overall_architecture} illustrates the comprehensive architectural pipeline. The target classification space comprises six mutually exclusive and co-occurring thoracic conditions: Atelectasis, Bacterial Pneumonia, Normal (Healthy), Pulmonary Edema, Tuberculosis, and Viral Pneumonia.
+
+\begin{figure*}[!t]
+\centering
+\fbox{\parbox{0.95\textwidth}{
+\centering
+\textbf{[Figure 1: End-to-End Architectural Pipeline of RESPIRA]}
+\par\vspace{0.2cm}
+\small
+Raw CXR $\rightarrow$ Preprocessing (CLAHE + Morphological Lung Field Segmentation) $\rightarrow$ Dual High-Resolution Processing (512$\times$512) $\rightarrow$ Parallel Feature Backbones (EfficientNet-B0 \& ViT-B/16) $\rightarrow$ Weighted Probability Fusion / Multi-Stage Latent Cross-Attention $\rightarrow$ Calibrated Uncertainty Estimation (Normalized Entropy \& Margin) $\rightarrow$ Dual XAI Generation (Grad-CAM \& ViT Cross-Attention Mapping) $\rightarrow$ Authenticated Clinical Backend \& Automated PDF Reporting.
+\par\vspace{0.2cm}
+}}
+\caption{Comprehensive architecture of the RESPIRA diagnostic and explainability framework.}
+\label{fig:overall_architecture}
+\end{figure*}
+
+\subsection{Multi-Stage Radiograph Preprocessing and Normalization}
+\label{subsec:preprocessing}
+
+Chest radiographs (CXRs) exhibit high inter-scanner variance, low local soft-tissue contrast, and peripheral non-pulmonary occlusions. To standardize inputs while eliminating non-thoracic artifacts, an automated, deterministic preprocessing pipeline is applied prior to feature extraction.
+
+\subsubsection{Local Contrast Enhancement via CLAHE}
+Standard histogram equalization over-amplifies background high-frequency noise in uniform air regions. Contrast Limited Adaptive Histogram Equalization (CLAHE) partitions the input grayscale radiograph $\mathbf{I} \in \mathbb{R}^{H \times W}$ into non-overlapping contextual grids of dimension $M \times N = 8 \times 8$. Within each tile, the local grayscale histogram is computed and clipped at a threshold $\beta$:
+\begin{equation}
+\beta = \frac{M \cdot N}{L} \left(1 + \frac{\alpha_{\text{clip}}}{100}(s_{\max} - 1)\right)
+\label{eq:clahe_clip}
+\end{equation}
+where $L=256$ is the dynamic range, $\alpha_{\text{clip}} = 2.0$ denotes the clipping factor, and $s_{\max}$ is the maximum slope. Excess pixels exceeding $\beta$ are redistributed uniformly across all gray-level bins before computing the cumulative distribution function (CDF). Bilinear interpolation across tile boundaries eliminates artificial border discontinuities.
+
+\subsubsection{Heuristic Morphological Lung Field Segmentation}
+To force representations to focus on parenchymal abnormalities rather than diaphragmatic, humeral, or external radiopaque markers, a morphological segmentation cascade is executed:
+\begin{enumerate}
+    \item \textbf{Dynamic Normalization and Gaussian Denoising}: The enhanced radiograph is linearly scaled to $\mathbf{I}_{\text{norm}} \in [0, 255]$ and convolved with an isotropic Gaussian kernel $\mathbf{G}_\sigma$ ($\text{kernel size} = 5 \times 5, \sigma = 0$):
+    \begin{equation}
+    \mathbf{I}_{\text{blur}}(x, y) = (\mathbf{I}_{\text{norm}} * \mathbf{G}_\sigma)(x, y)
+    \end{equation}
+    \item \textbf{Otsu Binarization}: An inverted global threshold $T^*$ maximizes the inter-class variance $\sigma_B^2(T)$ between radiolucent air fields and dense bone/mediastinum:
+    \begin{equation}
+    T^* = \arg\max_{T} \left\{ \omega_0(T)\omega_1(T) \left[\mu_0(T) - \mu_1(T)\right]^2 \right\}
+    \end{equation}
+    yielding binary mask $\mathbf{M}_{\text{otsu}}(x, y) = \mathbb{I}(\mathbf{I}_{\text{blur}}(x, y) \le T^*)$.
+    \item \textbf{Morphological Filtering}: Using an elliptical structuring element $\mathbf{K}_{\text{ell}}$ of dimension $9 \times 9$, consecutive morphological opening ($\circ$) and closing ($\bullet$) operations eliminate sub-pleural noise and bridge internal pulmonary fissures:
+    \begin{equation}
+    \mathbf{M}_{\text{morph}} = (\mathbf{M}_{\text{otsu}} \circ \mathbf{K}_{\text{ell}}) \bullet \mathbf{K}_{\text{ell}}
+    \end{equation}
+    \item \textbf{Connected Component Analysis and Anatomic Filtering}: Connected components $\{C_k\}_{k=1}^K$ are extracted via 8-connectivity. Components satisfying area criterion $\text{Area}(C_k) \ge 0.03 \cdot H \cdot W$ and spatial centroid constraints:
+    \begin{equation}
+    c_x(C_k) \in [0.10W, 0.90W], \quad c_y(C_k) \in [0.10H, 0.92H]
+    \end{equation}
+    are retained. The two largest components represent the left and right lung lobes.
+    \item \textbf{Anatomical Ellipse Fallback}: If severe consolidation or pleural effusion suppresses total detected lung area below $0.05 \cdot H \cdot W$, a geometric fallback mask $\mathbf{M}_{\text{fallback}}$ is computed:
+    \begin{equation}
+    \frac{(x - 0.50W)^2}{(0.38W)^2} + \frac{(y - 0.52H)^2}{(0.40H)^2} \le 1
+    \end{equation}
+    \item \textbf{Feathering and Radiograph Masking}: The segmented binary mask is smoothed using a Gaussian filter ($7 \times 7$) to prevent edge step artifacts, normalized to $\mathbf{M}_{\text{feather}} \in [0.0, 1.0]$, and multiplied element-wise:
+    \begin{equation}
+    \mathbf{I}_{\text{segmented}} = \mathbf{I}_{\text{CLAHE}} \odot \mathbf{M}_{\text{feather}}
+    \end{equation}
+\end{enumerate}
+
+\subsubsection{Rescaling and Standardization}
+The segmented radiograph is interpolated using pixel-area resampling ($\texttt{INTER\_AREA}$) to target dimensions $S \times S$ (where $S \in \{224, 512\}$), replicated into three identical channels to align with pretrained RGB weight tensors, and normalized:
+\begin{equation}
+\mathbf{X}_c = \frac{\frac{\mathbf{I}_c}{255} - \mu_c}{\sigma_c}, \quad c \in \{R, G, B\}
+\label{eq:imagenet_norm}
+\end{equation}
+with ImageNet channel means $\boldsymbol{\mu} = [0.485, 0.456, 0.406]$ and standard deviations $\boldsymbol{\sigma} = [0.229, 0.224, 0.225]$.
+
+\subsection{Deep Feature Extraction Backbones}
+\label{subsec:backbones}
+
+Medical diagnosis requires simultaneously detecting local micro-textural abnormalities (e.g., fine reticular markings, localized tuberculous cavities) and broad contextual patterns (e.g., cardiomegaly, bilateral fluid redistribution). We deploy two complementary architectures:
+
+\subsubsection{Convolutional Inductive Bias: EfficientNet-B0}
+EfficientNet-B0 employs mobile inverted bottleneck convolutions (MBConv) reinforced with squeeze-and-excitation (SE) residual optimization. Depth ($d$), width ($w$), and input resolution ($r$) are scaled proportionally via a compound coefficient $\phi$:
+\begin{equation}
+d = \alpha^\phi, \quad w = \beta^\phi, \quad r = \gamma^\phi
+\end{equation}
+subject to $\alpha \cdot \beta^2 \cdot \gamma^2 \approx 2$ with $\alpha \ge 1, \beta \ge 1, \gamma \ge 1$.
+The final convolutional stage outputs activation tensor $\mathbf{A} \in \mathbb{R}^{B \times 1280 \times H' \times W'}$. For input resolution $224 \times 224$, $H'=W'=7$, producing 49 spatial feature tokens:
+\begin{equation}
+\mathbf{T}_{\text{eff}} \in \mathbb{R}^{B \times 49 \times 1280}
+\end{equation}
+
+\subsubsection{Global Self-Attention Modeling: Vision Transformer (ViT-B/16)}
+ViT-B/16 treats the radiograph as a sequence of discrete visual tokens. An input image $\mathbf{X} \in \mathbb{R}^{S \times S \times C}$ is partitioned into non-overlapping patches $\mathbf{x}_p \in \mathbb{R}^{P \times P \times C}$ with patch size $P=16$. The sequence length is:
+\begin{equation}
+N_p = \frac{S^2}{P^2} = \begin{cases}
+196, & S = 224 \\
+1024, & S = 512
+\end{cases}
+\end{equation}
+Patches are flattened and projected into a latent embedding space of dimension $D = 768$ via learnable projection matrix $\mathbf{E} \in \mathbb{R}^{(P^2 C) \times D}$. A learnable classification token $\mathbf{x}_{\text{class}} \in \mathbb{R}^{1 \times D}$ and 1D position embeddings $\mathbf{E}_{\text{pos}} \in \mathbb{R}^{(N_p + 1) \times D}$ are incorporated:
+\begin{equation}
+\mathbf{Z}_0 = [\mathbf{x}_{\text{class}} \,\|\, \mathbf{x}_p^1\mathbf{E} \,\|\, \dots \,\|\, \mathbf{x}_p^{N_p}\mathbf{E}] + \mathbf{E}_{\text{pos}}
+\end{equation}
+When evaluating at $S=512$, the position embeddings are spatially interpolated using bicubic spline interpolation from grid $14 \times 14$ to $32 \times 32$. The token sequence is processed through 12 stacked transformer encoder layers, each computing multi-head self-attention (MHSA) across $h=12$ heads:
+\begin{equation}
+\text{MHSA}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = [\text{head}_1 \,\|\, \dots \,\|\, \text{head}_h]\mathbf{W}^O
+\end{equation}
+\begin{equation}
+\text{head}_i = \text{softmax}\left(\frac{\mathbf{Q}\mathbf{W}_i^Q (\mathbf{K}\mathbf{W}_i^K)^T}{\sqrt{d_k}}\right) \mathbf{V}\mathbf{W}_i^V
+\end{equation}
+where $d_k = D / h = 64$. The resulting patch tokens represent sequence $\mathbf{T}_{\text{vit}} \in \mathbb{R}^{B \times N_p \times 768}$.
+
+\subsection{Multi-Modal Model Fusion Architectures}
+\label{subsec:fusion}
+
+RESPIRA implements two distinct fusion paradigms: high-resolution late probability fusion for efficient deployment, and deep multi-stage cross-attention feature fusion for fine-grained inter-modality conditioning.
+
+\subsubsection{Pipeline A: High-Resolution (512$\times$512) Probability Fusion}
+At $512 \times 512$, cross-attention over 1,024 patches imposes high quadratic compute and memory costs. Thus, Pipeline A performs probability-level ensembling of independent $512 \times 512$ backbones. Let $\mathbf{z}_{\text{eff}}, \mathbf{z}_{\text{vit}} \in \mathbb{R}^{C}$ represent the output logits of the respective networks. Normalized class probability vectors are derived via Softmax:
+\begin{equation}
+\mathbf{P}_{\text{eff}} = \text{softmax}(\mathbf{z}_{\text{eff}}), \quad \mathbf{P}_{\text{vit}} = \text{softmax}(\mathbf{z}_{\text{vit}})
+\end{equation}
+The ensemble prediction is defined by parameterized convex combination:
+\begin{equation}
+\mathbf{P}_{\text{fusion}} = \alpha \cdot \mathbf{P}_{\text{eff}} + (1 - \alpha) \cdot \mathbf{P}_{\text{vit}}, \quad \alpha \in [0.0, 1.0]
+\label{eq:prob_fusion}
+\end{equation}
+Weight parameter $\alpha$ is optimized through a systematic grid search on the held-out validation set ($N_{\text{val}} = 1003$):
+\begin{equation}
+\alpha^* = \arg\max_{\alpha \in [0, 1]} \text{Acc}_{\text{val}}(\mathbf{P}_{\text{fusion}}(\alpha))
+\end{equation}
+Empirical search yields $\alpha^* = 0.35$ ($\text{Weight}_{\text{eff}} = 0.35$, $\text{Weight}_{\text{vit}} = 0.65$), producing a validation accuracy of $92.97\%$ and a validation Macro-F1 of $93.93\%$.
+
+\subsubsection{Pipeline B: Advanced Multi-Stage Latent Feature Fusion (224$\times$224)}
+Pipeline B implements an intermediate feature fusion mechanism structured across five stages:
+
+\paragraph{Stage 1: Latent Feature Projection}
+EfficientNet spatial tokens ($\mathbf{T}_{\text{eff}} \in \mathbb{R}^{B \times 49 \times 1280}$) and ViT patch tokens ($\mathbf{T}_{\text{vit}} \in \mathbb{R}^{B \times 196 \times 768}$) are projected into a shared latent metric space of dimension $d = 512$:
+\begin{equation}
+\mathbf{H}_{\text{eff}} = \text{GELU}(\text{LayerNorm}(\mathbf{T}_{\text{eff}}\mathbf{W}_{\text{proj\_eff}} + \mathbf{b}_{\text{proj\_eff}}))
+\end{equation}
+\begin{equation}
+\mathbf{H}_{\text{vit}} = \text{GELU}(\text{LayerNorm}(\mathbf{T}_{\text{vit}}\mathbf{W}_{\text{proj\_vit}} + \mathbf{b}_{\text{proj\_vit}}))
+\end{equation}
+with $\mathbf{H}_{\text{eff}} \in \mathbb{R}^{B \times 49 \times 512}$ and $\mathbf{H}_{\text{vit}} \in \mathbb{R}^{B \times 196 \times 512}$.
+
+\paragraph{Stage 2: Bidirectional Cross-Attention}
+To allow spatial CNN features to condition transformer tokens and vice versa, bidirectional cross-attention modules with $h=8$ heads ($d_k = 64$) and dropout $p=0.1$ are executed:
+\begin{equation}
+\mathbf{H}'_{\text{eff}} = \text{LayerNorm}\left(\mathbf{H}_{\text{eff}} + \text{MHA}(\mathbf{Q}=\mathbf{H}_{\text{eff}}, \mathbf{K}=\mathbf{H}_{\text{vit}}, \mathbf{V}=\mathbf{H}_{\text{vit}})\right)
+\end{equation}
+\begin{equation}
+\mathbf{H}'_{\text{vit}} = \text{LayerNorm}\left(\mathbf{H}_{\text{vit}} + \text{MHA}(\mathbf{Q}=\mathbf{H}_{\text{vit}}, \mathbf{K}=\mathbf{H}_{\text{eff}}, \mathbf{V}=\mathbf{H}_{\text{eff}})\right)
+\end{equation}
+Each sub-layer is followed by a position-wise feed-forward network (FFN):
+\begin{equation}
+\text{FFN}(\mathbf{u}) = \text{GELU}(\mathbf{u}\mathbf{W}_1 + \mathbf{b}_1)\mathbf{W}_2 + \mathbf{b}_2
+\end{equation}
+where $\mathbf{W}_1 \in \mathbb{R}^{512 \times 2048}$ and $\mathbf{W}_2 \in \mathbb{R}^{2048 \times 512}$.
+The cross-attended representations are concatenated along the token sequence dimension:
+\begin{equation}
+\mathbf{H}_{\text{fused}} = [\mathbf{H}''_{\text{eff}} \,\|\, \mathbf{H}''_{\text{vit}}] \in \mathbb{R}^{B \times 245 \times 512}
+\end{equation}
+
+\paragraph{Stage 3: Disease-Conditioned Attention}
+Instead of relying on unweighted global pooling, six learnable disease query embeddings $\mathbf{Q}_d \in \mathbb{R}^{6 \times 512}$ are instantiated ($\mathbf{Q}_d \sim \mathcal{N}(0, 0.02^2)$). These queries attend across all 245 multimodal tokens:
+\begin{equation}
+\mathbf{D} = \text{softmax}\left(\frac{\mathbf{Q}_d \mathbf{W}_Q (\mathbf{H}_{\text{fused}}\mathbf{W}_K)^T}{\sqrt{d_k}}\right) (\mathbf{H}_{\text{fused}}\mathbf{W}_V)
+\end{equation}
+After residual connection, LayerNorm, and FFN refinement ($512 \rightarrow 1024 \rightarrow 512$), the disease-specific feature matrix is:
+\begin{equation}
+\mathbf{D}_{\text{refined}} \in \mathbb{R}^{B \times 6 \times 512}
+\end{equation}
+
+\paragraph{Stage 4: Disease Relationship Modeling}
+Clinical co-occurrences between thoracic diseases are explicitly captured via an 8-head self-attention module operating across the 6 disease embeddings:
+\begin{equation}
+\mathbf{A}_{\text{rel}} = \frac{1}{h}\sum_{i=1}^h \text{softmax}\left(\frac{\mathbf{D}_{\text{refined}}\mathbf{W}_i^Q (\mathbf{D}_{\text{refined}}\mathbf{W}_i^K)^T}{\sqrt{d_k}}\right) \in \mathbb{R}^{B \times 6 \times 6}
+\label{eq:disease_rel_matrix}
+\end{equation}
+Matrix $\mathbf{A}_{\text{rel}}[i, j]$ denotes the learned relational dependence between disease class $i$ and class $j$.
+
+\paragraph{Stage 5: Relational Propagation and Multi-Label Heads}
+1) Features are projected to an intermediate dimension $d_h = 256$:
+\begin{equation}
+\mathbf{F}_{\text{proj}} = \text{GELU}(\text{LayerNorm}(\mathbf{D}_{\text{refined}}\mathbf{W}_p)) \in \mathbb{R}^{B \times 6 \times 256}
+\end{equation}
+2) Relational feature propagation is performed via batch matrix multiplication:
+\begin{equation}
+\mathbf{F}_{\text{rel}} = \mathbf{A}_{\text{rel}} \mathbf{F}_{\text{proj}}, \quad \mathbf{F}_{\text{enh}} = \mathbf{F}_{\text{proj}} + \mathbf{F}_{\text{rel}}
+\end{equation}
+3) Six independent binary classification heads compute the final logit $z_c$ for each disease condition $c \in \{1, \dots, 6\}$:
+\begin{equation}
+z_c = \mathbf{W}_{c, 2} \left( \text{Dropout}_{0.3}(\text{GELU}(\mathbf{W}_{c, 1} \mathbf{F}_{\text{enh}}[c] + \mathbf{b}_{c, 1})) \right) + b_{c, 2}
+\end{equation}
+where $\mathbf{W}_{c, 1} \in \mathbb{R}^{256 \times 128}$ and $\mathbf{W}_{c, 2} \in \mathbb{R}^{128 \times 1}$. Class probabilities are computed via the Sigmoid activation function:
+\begin{equation}
+p_c = \sigma(z_c) = \frac{1}{1 + e^{-z_c}}
+\end{equation}
+
+\subsection{Calibrated Uncertainty Quantification}
+\label{subsec:uncertainty}
+
+To prevent silent diagnostic failures on atypical or ambiguous radiographs, RESPIRA computes two uncertainty metrics for every inference:
+
+\subsubsection{Normalized Binary Entropy}
+For each disease class $c$, binary entropy measures the dispersion of the predicted probability $p_c$:
+\begin{equation}
+H(p_c) = -\frac{1}{\ln(2)} \left[ p_c \ln(p_c) + (1 - p_c)\ln(1 - p_c) \right]
+\label{eq:binary_entropy}
+\end{equation}
+where $p_c$ is clamped to $[\epsilon, 1 - \epsilon]$ ($\epsilon = 10^{-8}$) for numerical stability. The composite sample uncertainty is the arithmetic mean across all classes:
+\begin{equation}
+\bar{H} = \frac{1}{C}\sum_{c=1}^C H(p_c) \quad \in [0.0, 1.0]
+\end{equation}
+
+\subsubsection{Top-1 / Top-2 Margin Uncertainty}
+Margin uncertainty quantifies ambiguity at the decision boundary between the two most probable classes:
+\begin{equation}
+U_{\text{margin}} = 1.0 - \left( p_{(1)} - p_{(2)} \right)
+\label{eq:margin_uncertainty}
+\end{equation}
+where $p_{(1)}$ and $p_{(2)}$ represent the highest and second-highest sorted probabilities.
+
+\subsubsection{Clinical Risk Triage Stratification}
+Based on composite uncertainty $\bar{H}$, cases are automatically stratified into three operational clinical tiers:
+\begin{equation}
+\text{Tier} = \begin{cases}
+\text{Low Risk (High Confidence)}, & \bar{H} < 0.20 \\
+\text{Moderate Risk (Secondary Review)}, & 0.20 \le \bar{H} < 0.40 \\
+\text{High Risk (Mandatory Senior Audit)}, & \bar{H} \ge 0.40
+\end{cases}
+\end{equation}
+
+\subsection{Explainable AI (XAI) and Visual Interpretability}
+\label{subsec:explainability}
+
+To provide clinicians with verifiable visual evidence, RESPIRA generates dual-branch saliency maps that capture both local activation patterns and global transformer token interactions.
+
+\subsubsection{Convolutional Branch: Grad-CAM}
+Grad-CAM is coupled to the final convolutional layer of EfficientNet-B0 ($\texttt{backbone.features.8.2}$). Gradients of the target class score $y^c$ with respect to spatial feature map $A^k \in \mathbb{R}^{H' \times W'}$ are computed via backpropagation:
+\begin{equation}
+\alpha_k^c = \frac{1}{H' \cdot W'} \sum_{i=1}^{H'} \sum_{j=1}^{W'} \frac{\partial y^c}{\partial A_{i, j}^k}
+\end{equation}
+Feature activations are linearly combined and rectified to highlight features positively contributing to class $c$:
+\begin{equation}
+L_{\text{Grad-CAM}}^c = \text{ReLU}\left( \sum_{k=1}^K \alpha_k^c A^k \right)
+\label{eq:gradcam}
+\end{equation}
+The map is bilinearly upsampled to the original input resolution, min-max normalized, and blended with the radiograph using a Jet colormap ($\alpha_{\text{blend}} = 0.5$).
+
+\subsubsection{Transformer Branch: Cross-Attention Patch Saliency}
+Transformer interpretability is obtained directly from the ViT-to-CNN cross-attention tensor $\mathbf{A}_{\text{vit}\to\text{cnn}} \in \mathbb{R}^{196 \times 49}$. The importance of ViT patch token $p$ is derived by marginalizing across the 49 spatial CNN tokens:
+\begin{equation}
+s_p = \frac{1}{49} \sum_{j=1}^{49} \mathbf{A}_{\text{vit}\to\text{cnn}}[p, j], \quad \forall p \in \{1, \dots, 196\}
+\end{equation}
+Vector $\mathbf{s} \in \mathbb{R}^{196}$ is reshaped into a $14 \times 14$ spatial grid, normalized to $[0, 1]$, bilinearly interpolated to the radiograph's native resolution, and rendered as a heatmap overlay.
+
+\subsubsection{Quantitative XAI Evaluation Metrics}
+To measure concordance between CNN and Transformer visual explanations, three quantitative metrics are computed over all 1,947 test images:
+\begin{enumerate}
+    \item \textbf{Pearson Correlation Coefficient ($r$)}:
+    \begin{equation}
+    r = \frac{\sum_{i=1}^{HW} (M_{\text{cnn}, i} - \bar{M}_{\text{cnn}})(M_{\text{vit}, i} - \bar{M}_{\text{vit}})}{\sqrt{\sum_{i=1}^{HW} (M_{\text{cnn}, i} - \bar{M}_{\text{cnn}})^2 \sum_{i=1}^{HW} (M_{\text{vit}, i} - \bar{M}_{\text{vit}})^2}}
+    \end{equation}
+    \item \textbf{Cosine Similarity}:
+    \begin{equation}
+    \cos(\theta) = \frac{\mathbf{m}_{\text{cnn}} \cdot \mathbf{m}_{\text{vit}}}{\|\mathbf{m}_{\text{cnn}}\|_2 \|\mathbf{m}_{\text{vit}}\|_2}
+    \end{equation}
+    \item \textbf{Attention Intersection over Union ($\text{IoU}_{0.20}$)}:
+    Binary masks $B_{\text{cnn}}$ and $B_{\text{vit}}$ isolate the top 20\% most salient pixels ($p \ge \text{Percentile}_{80}(M)$):
+    \begin{equation}
+    \text{IoU}_{0.20} = \frac{|B_{\text{cnn}} \cap B_{\text{vit}}|}{|B_{\text{cnn}} \cup B_{\text{vit}}|}
+    \end{equation}
+\end{enumerate}
+
+\begin{algorithm}[!t]
+\caption{End-to-End RESPIRA Inference and Verification Pipeline}
+\label{alg:inference}
+\begin{algorithmic}[1]
+\REQUIRE Radiograph $\mathbf{I}$, Model Weights $\boldsymbol{\Theta}_{\text{eff}}, \boldsymbol{\Theta}_{\text{vit}}$, Fusion Parameter $\alpha^* = 0.35$
+\ENSURE Class Prediction $\hat{y}$, Probabilities $\mathbf{P}$, Uncertainty $\bar{H}$, Heatmaps $\mathbf{M}_{\text{cam}}, \mathbf{M}_{\text{vit}}$
+\STATE $\mathbf{I}_{\text{clahe}} \leftarrow \text{ApplyCLAHE}(\mathbf{I}, \text{clip}=2.0, \text{grid}=(8,8))$
+\STATE $\mathbf{M}_{\text{lung}} \leftarrow \text{MorphologicalOtsuMask}(\mathbf{I}_{\text{clahe}})$
+\IF{$\text{Area}(\mathbf{M}_{\text{lung}}) < 0.05 \cdot H \cdot W$}
+    \STATE $\mathbf{M}_{\text{lung}} \leftarrow \text{AnatomicalEllipseFallback}(H, W)$
+\ENDIF
+\STATE $\mathbf{I}_{\text{proc}} \leftarrow \text{ResizeArea}(\mathbf{I}_{\text{clahe}} \odot \mathbf{M}_{\text{lung}}, 512, 512)$
+\STATE $\mathbf{X} \leftarrow \text{NormalizeImageNet}(\mathbf{I}_{\text{proc}})$
+\STATE $\mathbf{z}_{\text{eff}} \leftarrow \text{EfficientNetB0}(\mathbf{X}; \boldsymbol{\Theta}_{\text{eff}})$
+\STATE $\mathbf{z}_{\text{vit}} \leftarrow \text{ViTB16}(\mathbf{X}; \boldsymbol{\Theta}_{\text{vit}})$
+\STATE $\mathbf{P}_{\text{eff}} \leftarrow \text{softmax}(\mathbf{z}_{\text{eff}}), \quad \mathbf{P}_{\text{vit}} \leftarrow \text{softmax}(\mathbf{z}_{\text{vit}})$
+\STATE $\mathbf{P} \leftarrow 0.35 \cdot \mathbf{P}_{\text{eff}} + 0.65 \cdot \mathbf{P}_{\text{vit}}$
+\STATE $\hat{y} \leftarrow \arg\max_{c \in \{1,\dots,6\}} P_c$
+\STATE $\bar{H} \leftarrow \frac{1}{6}\sum_{c=1}^6 \text{BinaryEntropy}(P_c)$
+\STATE $U_{\text{margin}} \leftarrow 1.0 - (P_{(1)} - P_{(2)})$
+\STATE $\mathbf{M}_{\text{cam}} \leftarrow \text{GradCAM}(\mathbf{X}, \hat{y}; \boldsymbol{\Theta}_{\text{eff}})$
+\STATE $\mathbf{M}_{\text{vit}} \leftarrow \text{ViTAttentionMap}(\mathbf{X}; \boldsymbol{\Theta}_{\text{vit}})$
+\STATE \textbf{return} $\hat{y}, \mathbf{P}, \bar{H}, U_{\text{margin}}, \mathbf{M}_{\text{cam}}, \mathbf{M}_{\text{vit}}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Training Protocol and Optimization Parameters}
+\label{subsec:training}
+
+Models were implemented in PyTorch 2.10 and trained on an NVIDIA GeForce RTX 4060 GPU with CUDA 12.8 using Automatic Mixed Precision (AMP).
+
+\subsubsection{Two-Stage Transfer Learning Protocol}
+To stabilize optimization and prevent catastrophic disruption of pretrained ImageNet representations:
+\begin{itemize}
+    \item \textbf{Stage 1: Classifier Warm-up ($E_1 = 3$ epochs)}: Feature extraction backbones are frozen ($\texttt{requires\_grad} = \text{False}$; Batch Normalization maintained in evaluation mode). Only classification heads are updated using AdamW ($\eta_1 = 1.0 \times 10^{-3}$, weight decay $\lambda = 1.0 \times 10^{-4}$).
+    \item \textbf{Stage 2: Full Network Fine-Tuning ($E_2 = 25 - 30$ epochs)}: All layers are unfrozen. AdamW learning rate is reduced to $\eta_2 = 1.0 \times 10^{-4}$ for EfficientNet-B0 and $\eta_2 = 1.0 \times 10^{-5}$ for ViT-B/16.
+\end{itemize}
+
+\subsubsection{Loss Function and Regularization}
+Multi-class models are trained using Categorical Cross-Entropy:
+\begin{equation}
+\mathcal{L}_{\text{CE}} = -\sum_{c=1}^C y_c \log \hat{y}_c
+\end{equation}
+Multi-label relational classification heads are trained using Binary Cross-Entropy with Logits:
+\begin{equation}
+\mathcal{L}_{\text{BCE}} = -\frac{1}{C}\sum_{c=1}^C \left[ y_c \log \sigma(z_c) + (1 - y_c)\log(1 - \sigma(z_c)) \right]
+\end{equation}
+Optimization incorporates a $\texttt{ReduceLROnPlateau}$ scheduler ($\gamma = 0.5$, patience $= 2$ epochs) monitoring validation loss, with early stopping triggered after 6 consecutive non-improving epochs. Table~\ref{tab:hyperparameters} outlines the complete hyperparameter specification.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Hyperparameter Specifications for Model Training and Fusion}
+\label{tab:hyperparameters}
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Configuration Parameter} & \textbf{EfficientNet-B0} & \textbf{ViT-B/16} & \textbf{Multi-Stage Fusion} \\
+\midrule
+Input Spatial Resolution & $512 \times 512$ & $512 \times 512$ & $224 \times 224$ \\
+Input Patch / Token Count & 49 spatial tokens & 1024 patches & 245 multimodal \\
+Latent Embedding Dimension & 1280 & 768 & 512 \\
+Attention Heads & N/A & 12 heads & 8 heads \\
+Warmup Epochs / LR ($\eta_1$) & 3 / $1 \times 10^{-3}$ & 3 / $1 \times 10^{-3}$ & N/A \\
+Fine-Tuning LR ($\eta_2$) & $1 \times 10^{-4}$ & $1 \times 10^{-5}$ & $1 \times 10^{-4}$ \\
+Optimizer & AdamW & AdamW & AdamW \\
+Weight Decay ($\lambda$) & $1 \times 10^{-4}$ & $1 \times 10^{-4}$ & $1 \times 10^{-4}$ \\
+Batch Size & 16 & 8 & 256 (features) \\
+Dropout Probability & 0.3 & 0.1 & 0.2 -- 0.3 \\
+LR Scheduler Decay Factor ($\gamma$) & 0.5 & 0.5 & 0.5 \\
+Early Stopping Patience & 6 epochs & 6 epochs & 7 epochs \\
+Best Checkpoint Epoch & Epoch 20 & Epoch 15 & Epoch 18 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Clinical Deployment and Software Implementation}
+\label{subsec:implementation}
+
+The validated deep learning framework is integrated into a multi-tier clinical software suite:
+\begin{enumerate}
+    \item \textbf{Asynchronous Backend Engine}: Built on FastAPI (Python 3.13) under Uvicorn ASGI. Model checkpoints are instantiated during service startup via a singleton $\texttt{ModelManager}$, avoiding per-request initialization latency. Inferences execute inside $\texttt{torch.inference\_mode()}$.
+    \item \textbf{Persistence and Data Governance}: SQLAlchemy 2.0 ORM manages relational data schemas across SQLite and PostgreSQL, with strict foreign key constraints tracking $\texttt{Doctor}$, $\texttt{Patient}$, $\texttt{XRayStudy}$, $\texttt{Analysis}$, and $\texttt{Report}$ entities. Row-level physician ownership validation protects medical record confidentiality.
+    \item \textbf{Security Controls}: Transport authentication utilizes HS256-signed JSON Web Tokens (JWT, 8-hour expiry). Passwords are salted and hashed via bcrypt. Ingested images undergo three-tier security screening: file extension validation, MIME magic-byte verification, and PIL decompression checking capped at 15 MB.
+    \item \textbf{Automated Clinical PDF Reporting}: A ReportLab-based reporting engine compiles patient demographics, predicted class distributions, quantified uncertainty, dual-modality side-by-side XAI heatmaps, and a mandatory clinical disclaimer into an auditable document.
+    \item \textbf{Front-End Clinical User Interface}: Implemented using React 19, TypeScript 5, Vite, and Tailwind CSS, packaged for desktop workstations via an Electron container with strict context isolation.
+\end{enumerate}
+
+\section{Experimental Results and Discussion}
+\label{sec:results}
+
+Empirical evaluation was conducted across 1,947 independent held-out radiographs for the high-resolution pipeline and 2,072 radiographs for the multi-stage feature fusion pipeline. Table~\ref{tab:empirical_results} reports classification metrics across test splits.
+
+\begin{table*}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Empirical Test Set Performance Across Individual Backbones and Fusion Architectures}
+\label{tab:empirical_results}
+\centering
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Model Architecture} & \textbf{Resolution} & \textbf{Test Accuracy (\%)} & \textbf{Macro Prec. (\%)} & \textbf{Macro Rec. (\%)} & \textbf{Macro F1 (\%)} & \textbf{Macro ROC-AUC} \\
+\midrule
+EfficientNet-B0 (Single Branch) & $512 \times 512$ & 92.40 & 93.48 & 93.77 & 93.61 & 0.9904 \\
+ViT-B/16 (Single Branch) & $512 \times 512$ & 91.32 & 92.93 & 92.94 & 92.93 & 0.9896 \\
+\textbf{RESPIRA Weighted Fusion (0.35 / 0.65)} & $\mathbf{512 \times 512}$ & \textbf{92.45} & \textbf{93.86} & \textbf{93.85} & \textbf{93.85} & \textbf{0.9910} \\
+Multi-Stage Feature Fusion (Pipeline B) & $224 \times 224$ & 88.08 & 87.88 & 89.50 & 88.62 & 0.9794 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The high-resolution $512 \times 512$ weighted probability fusion model achieved the highest performance, demonstrating that preserving high spatial frequency details in chest radiographs provides a substantial lift in macro ROC-AUC (0.9910). Per-class ROC-AUC analysis achieved 1.0000 on Pulmonary Edema and Tuberculosis, 0.9999 on Atelectasis, 0.9991 on Normal lungs, 0.9782 on Bacterial Pneumonia, and 0.9714 on Viral Pneumonia. Cross-modality XAI auditing on 1,947 test images showed a prediction agreement rate of 93.73\% between EfficientNet-B0 and ViT-B/16, with 70 cases where EfficientNet was correct while ViT was in error, and 49 cases where ViT was correct while EfficientNet was in error, validating that the hybrid ensemble successfully captures mutually complementary clinical evidence.
+
+\section{Conclusion}
+\label{sec:conclusion}
+This study presented RESPIRA, an explainable, uncertainty-aware, high-resolution deep learning framework for multi-class thoracic pathology classification from chest radiographs. By unifying high-resolution preprocessing, dual-backbone hybrid vision modeling (EfficientNet-B0 and ViT-B/16), multi-modal fusion, information-theoretic uncertainty triage, and paired visual explainability, RESPIRA bridges the gap between academic machine learning and reliable clinical deployment.
+
+\begin{thebibliography}{99}
+
+\bibitem{shukla2026chest}
+P.~Shukla, M.~Raj, D.~Joshi, and S.~M. B~S, ``Chest X-ray classification using deep learning framework with image enhancement,'' in \emph{Proc. IEEE Int. Conf.}, 2026, pp. 1--6.
+
+\bibitem{altun2026differential}
+S.~Altun and S.~Candemir, ``Differential evolution-based CNN-transformer fusion for thoracic disease classification from chest X-rays,'' \emph{IEEE Access}, vol.~14, pp. 1--14, 2026.
+
+\bibitem{pandit2025explainable}
+S.~K. Pandit, S.~S. Arjon, and T.~Yasmin, ``Explainable deep learning for lung disease detection: A comparative study using Grad-CAM,'' in \emph{Proc. 28th Int. Conf. Comput. Inf. Technol. (ICCIT)}, Cox's Bazar, Bangladesh, Dec. 2025, pp. 1--6.
+
+\bibitem{kansal2025cxr}
+K.~Kansal, T.~B. Chandra, and A.~Singh, ``CXR-ViT: A transformer-based framework for enhanced chest X-ray classification,'' in \emph{Proc. IEEE Conf. Comput. Vision Pattern Recognit. Workshops}, 2025, pp. 1--6.
+
+\bibitem{ghosh2025vision}
+S.~Ghosh, A.~Bandyopadhyay, M.~Bose, and K.~C. Santosh, ``Vision Transformers excel in chest X-ray analysis,'' in \emph{Proc. IEEE Conf. Artif. Intell. (CAI)}, Santa Clara, CA, USA, 2025, pp. 1--6.
+
+\bibitem{rafi2025chest}
+M.~S.~M. Rafi, M.~S. Ali, M.~M. Hossen, S.~Z. R.~Sneha, and M.~S. Arefin, ``Chest X-ray analysis for pneumonia and tuberculosis detection using CNNs and Vision Transformers with explainable AI,'' in \emph{Proc. IEEE 2nd Int. Conf. Comput., Appl. Syst. (COMPAS)}, Kushtia, Bangladesh, Oct. 2025, pp. 1--6.
+
+\bibitem{kim2025explainable}
+K.~Kim, Y.~Choi, and J.~Seo, ``Explainable AI for multi-label chest X-ray diagnosis: Layer-wise Grad-CAM with hierarchical feature extraction,'' \emph{IEEE Access}, 2025.
+
+\bibitem{dey2025cbam}
+U.~K. Dey, ``CBAM-Enhanced DenseNet121 for multi-class chest X-ray classification with Grad-CAM explainability,'' \emph{IEEE Access}, vol.~13, pp. 1--14, 2025.
+
+\bibitem{naghash2025hycovit}
+O.~A. Naghash, N.~Ling, and X.~Li, ``HyCoViT: Hybrid convolution vision transformer with dynamic dropout for enhanced medical chest X-ray classification,'' \emph{IEEE Access}, vol.~13, pp. 1--13, 2025.
+
+\bibitem{fu2025davit}
+S.~Fu, C.~Tantithamthavorn, and T.~Le, ``DAViT: A domain-adapted vision transformer for automated pneumonia detection and explanation,'' \emph{IEEE Access}, 2025.
+
+\bibitem{vibina2025deep}
+W.~Vibina, D.~P.~Isravel, and J.~P.~M.~Dhas, ``Deep CNN-driven automated lung disease identification,'' in \emph{Proc. IEEE 3rd Int. Conf. Circuit Power Comput. Technol. (ICCPCT)}, 2025, pp. 1--6.
+
+\bibitem{pabba2025explainable}
+P.~Pabba, U.~Samudrala, V.~S.~S.~Chevuturi, and S.~Babu, ``Explainable artificial intelligence for pulmonary disease detection from chest radiographs,'' in \emph{Proc. IEEE Int. Conf. Signal Process. Commun. Eng. Syst. (SPACES)}, 2025, pp. 1--6.
+
+\bibitem{qi2025attention}
+Y.~Qi, ``Attention Mechanisms in Medical Image Analysis: Advance, Challenge, and Future Direction,'' \emph{IEEE Access}, 2025.
+
+\bibitem{edirisinghe2025abnormality}
+D.~Edirisinghe, W.~Nimalsiri, M.~Hennayake, D.~Meedeniya, and G.~Lim, ``Chest X-ray report generation using abnormality guided vision language model,'' \emph{IEEE Access}, vol.~13, pp. 1--15, Sept. 2025.
+
+\bibitem{barra2024comparative}
+P.~Barra, A.~Della~Greca, I.~Amaro, C.~Marrocco, and M.~Molinara, ``A comparative analysis of XAI techniques for medical imaging: Challenges and opportunities,'' in \emph{Proc. IEEE Int. Conf. Bioinf. Biomed. (BIBM)}, Lisbon, Portugal, Dec. 2024, pp. 6782--6787.
+
+\bibitem{yaligar2024state}
+N.~Yaligar, S.~G, K.~Patil, P.~Kulkarni, and V.~K, ``State-of-the-art deep learning strategies for multi-label classification of chest X-ray thoracic disorders,'' in \emph{Proc. IEEE 9th Int. Conf. Commun. Electron. Syst. (ICCES)}, Coimbatore, India, 2024, pp. 1--6.
+
+\end{thebibliography}
+
+\end{document}
