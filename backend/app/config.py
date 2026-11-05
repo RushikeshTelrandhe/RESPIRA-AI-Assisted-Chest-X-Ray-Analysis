@@ -19,31 +19,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # PROJECT PATHS
 # ============================================================================
 
-# C:\Users\rushi\Desktop\Respira\app\backend
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-
-# C:\Users\rushi\Desktop\Respira
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ============================================================================
 # DEPLOYMENT MODEL CHECKPOINTS
 # ============================================================================
-
-# All application/deployment checkpoints are stored here:
-#
-# Respira/
-# └── models/
-#     ├── densenet/
-#     │   └── best_model.pth
-#     ├── efficientnet_b0/
-#     │   └── best_model.pth
-#     ├── vit/
-#     │   └── best_model.pth
-#     ├── adaptive_fusion/
-#     │   └── best_model.pth
-#     └── classification/
-#         └── best_model.pth
 
 MODELS_DIR = PROJECT_ROOT / "models"
 
@@ -68,11 +50,11 @@ ADAPTIVE_FUSION_CHECKPOINT = (
 CLASSIFICATION_CHECKPOINT = (
     MODELS_DIR / "classification" / "best_model.pth"
 )
-DENSENET_CHECKPOINT = (
-    MODELS_DIR
-    / "densenet"
-    / "best_model.pth"
+
+METHODOLOGY_FUSION_CHECKPOINT = (
+    MODELS_DIR / "methodology_fusion" / "best_model.pth"
 )
+
 
 # ============================================================================
 # APPLICATION SETTINGS

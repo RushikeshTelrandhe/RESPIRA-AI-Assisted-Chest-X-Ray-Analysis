@@ -248,6 +248,8 @@ def run_inference(image: Image.Image, model_key: str = "fusion") -> dict:
     """Run the selected model. Returns real result + real timings (ms)."""
     if model_key not in MODEL_KEYS:
         raise ValueError(f"Unknown model '{model_key}'. Choose from: {', '.join(MODEL_KEYS)}.")
+    if model_key in ("finetuned-fusion", "finetuned_fusion"):
+        return run_finetuned_fusion(image)
     if model_key in ("efficientnet-512", "vit-512"):
         return run_standalone_512(image, model_key)
     if model_key == "fusion-512":
@@ -255,6 +257,94 @@ def run_inference(image: Image.Image, model_key: str = "fusion") -> dict:
     if model_key != "fusion":
         return run_standalone(image, model_key)
     return run_fusion(image)
+
+
+def run_finetuned_fusion(image: Image.Image) -> dict:
+    """Run the Finetuned Respira Fusion methodology model (512x512, Cross-Attention + GCN + MC Dropout)."""
+    import cv2
+    import numpy as np
+    from torchvision import transforms
+
+    mgr = get_manager()
+    if not mgr.is_model_ready("finetuned-fusion"):
+        err = mgr.model_errors.get("finetuned-fusion") or "Finetuned Respira Fusion model is not loaded. Check /api/v1/models/status."
+        raise RuntimeError(err)
+
+    model = mgr.finetuned_fusion
+
+    # 1. Unmasked 512x512 Preprocessing (CLAHE 2.0, 8x8 + Resize 512x512 + RGB normalize)
+    t0 = time.perf_counter()
+    final_arr, _ = preprocess_pil(image, image_size=512)
+    pil_img = Image.fromarray(final_arr)
+
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    tensor = transform(pil_img).unsqueeze(0).to(mgr.device)
+    t1 = time.perf_counter()
+
+    # 2. MC Dropout Inference with 5 forward passes for true calibrated uncertainty
+    with torch.no_grad():
+        with torch.cuda.amp.autocast(enabled=(mgr.device.type == "cuda")):
+            mc_res = model.predict_with_mc_dropout(tensor, num_samples=5)
+    t2 = time.perf_counter()
+
+    mean_probs = mc_res["mean_probabilities"][0].detach().cpu().numpy().astype(float)
+    epistemic_var = mc_res["epistemic_variance"][0].detach().cpu().numpy().astype(float)
+    entropy_unc = float(mc_res["uncertainty_entropy"][0].item())
+    top_confidence = float(mc_res["confidence_score"][0].item())
+    top_idx = int(mc_res["predicted_class"][0].item())
+
+    # Sort probabilities for margin uncertainty
+    ordered = np.sort(mean_probs)
+    margin_unc = float(1.0 - (ordered[-1] - ordered[-2]))
+
+    # Normalized Shannon entropy per class
+    eps = 1e-7
+    p_clamped = np.clip(mean_probs, eps, 1.0)
+    per_class_entropy = - (p_clamped * np.log2(p_clamped) + (1.0 - p_clamped) * np.log2(1.0 - p_clamped))
+
+    version = next(m["version"] for m in MODEL_REGISTRY if m["key"] == "finetuned-fusion")
+
+    return {
+        "predicted_class": ml_config.CLASS_NAMES[top_idx],
+        "confidence": top_confidence,
+        "sample_uncertainty": entropy_unc,
+        "uncertainty_level": (
+            "Low" if entropy_unc < 0.25
+            else "Moderate" if entropy_unc < 0.45
+            else "High"
+        ),
+        "margin_uncertainty": margin_unc,
+        "probabilities": {k: float(v) for k, v in zip(ml_config.CLASS_NAMES, mean_probs)},
+        "uncertainties": {k: float(v) for k, v in zip(ml_config.CLASS_NAMES, per_class_entropy)},
+        "epistemic_variances": {k: float(v) for k, v in zip(ml_config.CLASS_NAMES, epistemic_var)},
+        "disease_weights": {},
+        "per_class": [
+            {
+                "name": n,
+                "probability": float(mean_probs[i]),
+                "uncertainty": float(per_class_entropy[i]),
+                "risk_level": (
+                    "low" if per_class_entropy[i] < 0.25
+                    else "moderate" if per_class_entropy[i] < 0.45
+                    else "high"
+                ),
+                "description": CLASS_DESCRIPTIONS.get(n, ""),
+            }
+            for i, n in enumerate(ml_config.CLASS_NAMES)
+        ],
+        "timing": {
+            "preprocessing_ms": (t1 - t0) * 1000.0,
+            "inference_ms": (t2 - t1) * 1000.0,
+            "total_ms": (t2 - t0) * 1000.0,
+        },
+        "device": str(mgr.device),
+        "class_order": list(ml_config.CLASS_NAMES),
+        "model_key": "finetuned-fusion",
+        "model_version": version,
+    }
 
 
 def run_fusion(image: Image.Image) -> dict:

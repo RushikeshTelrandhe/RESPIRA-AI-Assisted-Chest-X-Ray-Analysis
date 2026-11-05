@@ -58,14 +58,29 @@ async def gradcam(
     target_class: int = Form(...),
     analysis_id: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
+    model: str | None = Form(default=None),
     db: Session = Depends(get_db),
     doctor: Doctor = Depends(get_current_doctor),
 ):
     if not 0 <= target_class <= 5:
         raise HTTPException(status_code=400, detail="target_class must be 0-5")
     img = await _load_image(analysis_id, file, db, doctor)
+    model_key = (model or "fusion").strip().lower()
+    if analysis_id and not model:
+        row = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+        if row and row.model_version:
+            v = row.model_version.lower()
+            if "finetuned" in v:
+                model_key = "finetuned-fusion"
+            elif "512" in v:
+                if "efficientnet" in v:
+                    model_key = "efficientnet-512"
+                elif "vit" in v:
+                    model_key = "vit-512"
+                elif "fusion" in v:
+                    model_key = "fusion-512"
     try:
-        out = await asyncio.to_thread(gradcam_for, img, target_class)
+        out = await asyncio.to_thread(gradcam_for, img, target_class, model_key)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception:
@@ -77,14 +92,30 @@ async def gradcam(
 
 @router.post("/vit-attention")
 async def vit_attention(
+    target_class: int = Form(default=0),
     analysis_id: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
+    model: str | None = Form(default=None),
     db: Session = Depends(get_db),
     doctor: Doctor = Depends(get_current_doctor),
 ):
     img = await _load_image(analysis_id, file, db, doctor)
+    model_key = (model or "fusion").strip().lower()
+    if analysis_id and not model:
+        row = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+        if row and row.model_version:
+            v = row.model_version.lower()
+            if "finetuned" in v:
+                model_key = "finetuned-fusion"
+            elif "512" in v:
+                if "efficientnet" in v:
+                    model_key = "efficientnet-512"
+                elif "vit" in v:
+                    model_key = "vit-512"
+                elif "fusion" in v:
+                    model_key = "fusion-512"
     try:
-        out = await asyncio.to_thread(vit_attention_for, img)
+        out = await asyncio.to_thread(vit_attention_for, img, target_class, model_key)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception:

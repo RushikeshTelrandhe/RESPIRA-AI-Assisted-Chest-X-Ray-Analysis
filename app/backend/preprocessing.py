@@ -37,150 +37,37 @@ def apply_clahe(
 
 
 # ============================================================
-# LUNG MASK
+# LUNG MASK (BYPASS / UNMASKED)
 # ============================================================
-# Reproduces create_lung_mask / apply_lung_mask from the
-# fixed preprocessing notebook (stage 12).
+# Masking removed to strictly match the 512x512 unmasked dataset:
+# Preserves complete chest radiograph anatomy (ribs, apex, costophrenic angles).
 
 
 def create_lung_mask(
     gray: np.ndarray,
 ) -> np.ndarray:
-    img = cv2.normalize(
-        gray,
-        None,
-        0,
-        255,
-        cv2.NORM_MINMAX,
-    ).astype(np.uint8)
-
-    blur = cv2.GaussianBlur(
-        img,
-        (5, 5),
-        0,
-    )
-
-    _, threshold = cv2.threshold(
-        blur,
-        0,
-        255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-    )
-
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (9, 9),
-    )
-
-    mask = cv2.morphologyEx(
-        threshold,
-        cv2.MORPH_OPEN,
-        kernel,
-    )
-
-    mask = cv2.morphologyEx(
-        mask,
-        cv2.MORPH_CLOSE,
-        kernel,
-    )
-
-    h, w = mask.shape
-
-    num_labels, labels, stats, centroids = (
-        cv2.connectedComponentsWithStats(
-            mask,
-            connectivity=8,
-        )
-    )
-
-    candidates = []
-
-    for component_id in range(1, num_labels):
-
-        x, y, cw, ch, area = stats[component_id]
-        cx, cy = centroids[component_id]
-
-        if area < 0.03 * h * w:
-            continue
-
-        if (
-            0.10 * w <= cx <= 0.90 * w
-            and
-            0.10 * h <= cy <= 0.92 * h
-        ):
-            candidates.append(
-                (area, component_id)
-            )
-
-    candidates.sort(reverse=True)
-
-    lung_mask = np.zeros_like(mask)
-
-    for _, component_id in candidates[:2]:
-        lung_mask[
-            labels == component_id
-        ] = 255
-
-    # --------------------------------------------------------
-    # Fallback central chest region
-    # --------------------------------------------------------
-
-    if np.count_nonzero(lung_mask) < 0.05 * h * w:
-
-        yy, xx = np.ogrid[:h, :w]
-
-        cx = w / 2
-        cy = h * 0.52
-
-        rx = w * 0.38
-        ry = h * 0.40
-
-        ellipse = (
-            ((xx - cx) ** 2 / rx ** 2)
-            +
-            ((yy - cy) ** 2 / ry ** 2)
-            <= 1
-        )
-
-        lung_mask[ellipse] = 255
-
-    # Smooth mask edges
-    lung_mask = cv2.GaussianBlur(
-        lung_mask,
-        (7, 7),
-        0,
-    )
-
-    return lung_mask
+    """Returns full unmasked mask (all 255) to preserve complete chest anatomy."""
+    h, w = gray.shape[:2]
+    return np.full((h, w), 255, dtype=np.uint8)
 
 
 def apply_lung_mask(
     gray: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    mask = create_lung_mask(gray)
-
-    mask_float = (
-        mask.astype(np.float32) / 255.0
-    )
-
-    masked = (
-        gray.astype(np.float32)
-        * mask_float
-    )
-
-    masked = np.clip(
-        masked,
-        0,
-        255,
-    ).astype(np.uint8)
-
-    return masked, mask
+    """
+    Unmasked bypass:
+    Returns the unmasked CLAHE enhanced image and full-field mask.
+    Prevents blacked-out lungs or morphological boundary artifacts.
+    """
+    h, w = gray.shape[:2]
+    mask = np.full((h, w), 255, dtype=np.uint8)
+    return gray, mask
 
 
 # ============================================================
-# FINAL PREPROCESSING (thumbnail processing chain)
+# FINAL PREPROCESSING (Identical to 512 Training Pipeline)
 # ============================================================
-# Order: CLAHE -> Lung mask -> Resize 224 -> RGB
+# Order: Grayscale -> CLAHE (clip 2.0, tile 8x8) -> Resize -> RGB (No Masking)
 
 
 def process_image_array(
@@ -193,14 +80,14 @@ def process_image_array(
     image:
         RGB (H, W, 3) or grayscale (H, W) array.
     image_size:
-        Output square size (224 legacy / 512 high-resolution).
+        Output square size (512 standard / 224 legacy).
 
     Returns
     -------
     final:
-        (image_size, image_size, 3) uint8 RGB image.
+        (image_size, image_size, 3) uint8 RGB image (unmasked, CLAHE enhanced).
     lung_mask:
-        (H, W) uint8 lung mask from the ORIGINAL dimensions.
+        (H, W) uint8 full unmasked mask (all 255s) of original dimensions.
     """
     if image.ndim == 3:
         gray = cv2.cvtColor(
@@ -210,22 +97,26 @@ def process_image_array(
     else:
         gray = image
 
+    # 1. CLAHE enhancement (clipLimit=2.0, tileGridSize=(8, 8))
     clahe_enhanced = apply_clahe(gray)
 
-    masked, mask = apply_lung_mask(clahe_enhanced)
-
+    # 2. Resize directly without lung masking (identical to 512 training pipeline)
     resized = cv2.resize(
-        masked,
+        clahe_enhanced,
         (image_size, image_size),
         interpolation=cv2.INTER_AREA,
     )
 
+    # 3. 3-channel RGB conversion
     final = cv2.cvtColor(
         resized,
         cv2.COLOR_GRAY2RGB,
     )
 
-    return final, mask
+    h, w = gray.shape[:2]
+    full_mask = np.full((h, w), 255, dtype=np.uint8)
+
+    return final, full_mask
 
 
 def preprocess_pil(
