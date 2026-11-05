@@ -29,11 +29,19 @@ from app.backend import config as ml_config
 # Standalone baselines use softmax, as trained with CrossEntropy.
 MODEL_REGISTRY: list[dict] = [
     {
+        "key": "finetuned-fusion",
+        "name": "Finetuned Respira Fusion",
+        "version": "respira-fusion-finetuned-1.0",
+        "description": (
+            "Finetuned 512x512 Methodology Model: Cross-Attention + Relational GCN (96.4% ROC-AUC, 96.2% Top-2) (recommended)"
+        ),
+    },
+    {
         "key": "fusion",
         "name": "Respira Fusion",
         "version": "respira-fusion-1.0",
         "description": (
-            "Full EfficientNet-B0 + ViT-B/16 fusion pipeline (recommended)"
+            "Full EfficientNet-B0 + ViT-B/16 fusion pipeline (224x224)"
         ),
     },
     {
@@ -74,7 +82,7 @@ MODEL_REGISTRY: list[dict] = [
     },
 ]
 
-MODEL_KEYS = [m["key"] for m in MODEL_REGISTRY]
+MODEL_KEYS = [m["key"] for m in MODEL_REGISTRY] + ["finetuned_fusion"]
 
 # High-resolution 512x512 checkpoint candidates (first existing wins).
 def _candidates(*paths: Path) -> list[Path]:
@@ -106,6 +114,9 @@ class ModelManager:
         self.pipeline = None
         self.gradcam = None
         self.densenet = None
+
+        # Finetuned 512x512 Methodology model
+        self.finetuned_fusion = None
 
         # High-resolution 512x512 backbones + fusion weights.
         self.efficientnet_512 = None
@@ -222,6 +233,14 @@ class ModelManager:
             self.model_errors["fusion-512"] = f"{type(exc).__name__}: {exc}"
 
         # --------------------------------------------------------------
+        # Finetuned Respira Fusion (512x512 Methodology Model)
+        # --------------------------------------------------------------
+        try:
+            self._load_finetuned_fusion()
+        except Exception as exc:
+            self.model_errors["finetuned-fusion"] = f"{type(exc).__name__}: {exc}"
+
+        # --------------------------------------------------------------
         # Research evaluation metrics
         # --------------------------------------------------------------
         self.research_metrics = self._read_research_metrics()
@@ -315,6 +334,31 @@ class ModelManager:
             if "fusion-512" not in self.model_errors:
                 self.model_errors["fusion-512"] = f"{type(exc).__name__}: {exc}"
 
+    def _load_finetuned_fusion(self) -> None:
+        """Load the Finetuned Respira Fusion methodology model (512x512)."""
+        from src.fusion.respira_methodology_model import RespiraMethodologyModel
+
+        root = ml_config.PROJECT_ROOT
+
+        candidates = _candidates(
+            root / "models" / "methodology_fusion" / "best_model.pth",
+            root / "outputs" / "methodology_fusion" / "checkpoints" / "best_model.pth",
+        )
+        ckpt_path = _first_existing(candidates)
+        if ckpt_path is None:
+            raise FileNotFoundError(
+                "Missing Finetuned Respira Fusion checkpoint: "
+                + ", ".join(str(p) for p in candidates)
+            )
+
+        model = RespiraMethodologyModel(num_classes=6, pretrained=False, dropout=0.3)
+        obj = torch.load(str(ckpt_path), map_location=self.device, weights_only=False)
+        state = obj.get("model_state_dict", obj) if isinstance(obj, dict) else obj
+        model.load_state_dict(state, strict=True)
+        model.to(self.device)
+        model.eval()
+        self.finetuned_fusion = model
+
     # ------------------------------------------------------------------
     # Research metrics
     # ------------------------------------------------------------------
@@ -361,6 +405,9 @@ class ModelManager:
                 and self.pipeline is not None
             )
 
+        if key in ("finetuned-fusion", "finetuned_fusion"):
+            return self.finetuned_fusion is not None
+
         if key == "densenet":
             return self.densenet is not None
 
@@ -397,7 +444,7 @@ class ModelManager:
                         or "Fusion pipeline is not loaded"
                     )
 
-            elif key in ("densenet", "efficientnet-512", "vit-512", "fusion-512"):
+            elif key in ("densenet", "efficientnet-512", "vit-512", "fusion-512", "finetuned-fusion"):
                 err = self.model_errors.get(key)
 
             out.append(
@@ -448,6 +495,11 @@ class ModelManager:
             "error": self.error,
             "architecture": {
                 "DenseNet121": "research-baseline",
+                "FinetunedRespiraFusion": (
+                    "trained-checkpoint (512x512 Cross-Attention + GCN, 96.4% ROC-AUC)"
+                    if self.finetuned_fusion is not None
+                    else "missing"
+                ),
                 "EfficientNet-B0": arch.get(
                     "cnn",
                     "EfficientNet-B0",

@@ -1,0 +1,110 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=black,
+    urlcolor=blue
+}
+
+\begin{document}
+
+\title{Related Work: Deep Learning, Vision Transformers, Hybrid Fusion, and Explainable AI for Chest Radiograph Analysis}
+
+\author{Siddhant Dongre, Rushikesh Telrandhe
+\thanks{The authors are with the Department of Artificial Intelligence, G. H. Raisoni College of Engineering, Nagpur, India.}
+}
+
+\maketitle
+
+\section{Related Work}
+\label{sec:related_work}
+
+Deep learning has emerged as a cornerstone for computer-aided diagnosis in thoracic radiology, with convolutional neural networks (CNNs) and Vision Transformers (ViTs) being extensively explored for automated chest X-ray (CXR) interpretation. However, achieving clinically viable diagnostic systems requires addressing not only raw classification accuracy, but also rigorous dataset quality control, multi-scale feature representations, inter-disease relational dependencies, calibrated uncertainty estimation, and faithful visual interpretability.
+
+\subsection{Convolutional Architectures and Image Enhancement}
+Convolutional architectures have historically provided the baseline for medical image classification due to their translation invariance and strong localized inductive bias. Pandit \textit{et al.} \cite{pandit2025explainable} presented an explainable deep learning comparative study for multi-class pulmonary disease classification using multiple pretrained CNN backbones, including NASNetMobile, Xception, InceptionV3, DenseNet-121, ResNet-50, and VGG-16, demonstrating that deep CNN backbones capture discriminative textural patterns. Emphasizing input fidelity, Shukla \textit{et al.} \cite{shukla2026chest} proposed a pipeline combining contrast enhancement techniques with CNN classifiers, proving that input preprocessing directly dictates classification accuracy. Vibina \cite{vibina2025deep} validated deep CNN-driven identification of pulmonary conditions, while Dey \cite{dey2025cbam} integrated Channel and Spatial Attention (CBAM) into DenseNet-121, demonstrating that spatial and channel re-weighting boosts sensitivity in low-contrast lesion boundaries. Yaligar \textit{et al.} \cite{yaligar2024state} conducted a benchmark of state-of-the-art CNN strategies across multi-label disorders, noting that pure CNNs struggle to capture long-range bilateral thoracic dependencies.
+
+\subsection{Vision Transformers and Domain Adaptation}
+To overcome the constrained receptive fields of convolutional filters, self-attention mechanisms and Vision Transformers have been adapted to radiographic imaging. Kansal \textit{et al.} \cite{kansal2025cxr} proposed CXR-ViT, demonstrating that patch-based self-attention effectively captures broad thoracic patterns. Ghosh \textit{et al.} \cite{ghosh2025vision} established that Vision Transformers excel on large-scale benchmarks, showing that all-to-all patch attention layers identify diffuse thoracic abnormalities (such as cardiomegaly and edema) more robustly than localized convolutional filters. Addressing domain-specific token representations, Fu \textit{et al.} \cite{fu2025davit} formulated DAViT, confirming that domain adaptation and specialized pretraining yield superior token embeddings for pneumonia detection.
+
+\subsection{Hybrid CNN-Transformer Architectures and Multi-Modal Feature Fusion}
+Recognizing the complementary strengths of CNNs (local feature extraction) and ViTs (global context aggregation), recent literature has shifted toward hybrid fusion frameworks. Altun and Candemir \cite{altun2026differential} proposed a differential evolution-based CNN-transformer fusion framework, demonstrating that metaheuristic-guided feature combinations between convolutional and self-attention representations achieve superior thoracic pathology discrimination compared to standalone architectures. Concurrently, Naghash \textit{et al.} \cite{naghash2025hycovit} developed HyCoViT, featuring dynamic dropout to stabilize the fusion of dense local representations with global contextual embeddings. Rafi \textit{et al.} \cite{rafi2025chest} performed a comparative and integrative analysis of CNNs and Vision Transformers for pneumonia and tuberculosis detection, reporting accuracies of 89.61\% and 90.12\% respectively.
+
+\subsection{Multimodal Vision-Language Alignment and Attention Surveys}
+Expanding diagnostic capabilities beyond classification, Zhang \textit{et al.} \cite{zhang2025abnormality} introduced abnormality-guided vision-language models for automated radiology report generation, highlighting the importance of multi-task feature alignment between visual abnormalities and diagnostic findings. Qi \cite{qi2025attention} presented a comprehensive survey of attention mechanisms across medical computer vision, demonstrating that channel, spatial, and cross-attention modules consistently enhance diagnostic sensitivity and interpretability across radiological modalities.
+
+\subsection{Model Explainability and Visual Interpretability (XAI)}
+In clinical artificial intelligence, automated predictions require verifiable visual evidence. Kim \textit{et al.} \cite{kim2025explainable} proposed a hierarchical explainability framework using layer-wise Grad-CAM on U-Net feature representations, extracting multi-scale activation maps across 14 observations on MIMIC-CXR. Pabba \textit{et al.} \cite{pabba2025explainable} verified the clinical utility of saliency mappings in identifying focal pulmonary consolidations. Barra \textit{et al.} \cite{barra2024comparative} presented a comparative evaluation of XAI techniques in medical imaging, revealing that while Grad-CAM provides computationally efficient and intuitive gradient heatmaps, perturbation methods like LIME and SHAP incur heavy computational overhead.
+
+\subsection{Identified Research Gaps and the Proposed RESPIRA Framework}
+A critical synthesis of the recent IEEE literature (\cite{shukla2026chest}--\cite{yaligar2024state}) reveals four unresolved research gaps:
+\begin{enumerate}
+    \item \textbf{Resolution Disconnect}: Pervasive spatial downsampling to $224 \times 224$ pixels discards fine apical and reticular markers.
+    \item \textbf{Heuristic Concatenation}: Existing fusion methods frequently rely on naive concatenation without disease-conditioned query attention or relational dependency modeling.
+    \item \textbf{Absence of Calibrated Uncertainty}: High-accuracy models routinely omit predictive uncertainty bounds, treating borderline scans identically to confident predictions.
+    \item \textbf{Lack of Quantitative Dual-Modality XAI Auditing}: Visual explanations are rarely audited quantitatively across paired CNN and ViT modalities on identical test cohorts.
+\end{enumerate}
+
+The proposed \textbf{RESPIRA} framework systematically resolves these limitations through: 1) deterministic CLAHE preprocessing and morphological lung field segmentation; 2) a dual-backbone hybrid vision system coupling high-resolution ($512 \times 512$) \textbf{EfficientNet-B0} and \textbf{ViT-B/16}; 3) high-resolution weighted probability fusion alongside an advanced 5-stage latent feature fusion network with disease-conditioned query attention and relational self-attention; 4) calibrated uncertainty quantification (normalized binary entropy and decision margin) with a 3-tier clinical triage rule; 5) a quantitative dual-modality explainability audit (Grad-CAM vs. ViT Cross-Attention Mapping) evaluated across 1,947 test radiographs (93.73\% agreement rate); and 6) a complete clinical software suite featuring an asynchronous FastAPI backend, SQLAlchemy ORM, automated ReportLab PDF diagnostic reporting, and a React 19 / Electron desktop application.
+
+\begin{thebibliography}{99}
+
+\bibitem{shukla2026chest}
+P.~Shukla, M.~Raj, D.~Joshi, and S.~M. B~S, ``Chest X-ray classification using deep learning framework with image enhancement,'' in \emph{Proc. IEEE Int. Conf.}, 2026, pp. 1--6.
+
+\bibitem{altun2026differential}
+S.~Altun and S.~Candemir, ``Differential evolution-based CNN-transformer fusion for thoracic disease classification from chest X-rays,'' \emph{IEEE Access}, vol.~14, pp. 1--14, 2026.
+
+\bibitem{pandit2025explainable}
+S.~K. Pandit, S.~S. Arjon, and T.~Yasmin, ``Explainable deep learning for lung disease detection: A comparative study using Grad-CAM,'' in \emph{Proc. 28th Int. Conf. Comput. Inf. Technol. (ICCIT)}, Cox's Bazar, Bangladesh, Dec. 2025, pp. 1--6.
+
+\bibitem{kansal2025cxr}
+K.~Kansal, T.~B. Chandra, and A.~Singh, ``CXR-ViT: A transformer-based framework for enhanced chest X-ray classification,'' in \emph{Proc. IEEE Conf. Comput. Vision Pattern Recognit. Workshops}, 2025, pp. 1--6.
+
+\bibitem{ghosh2025vision}
+S.~Ghosh, A.~Bandyopadhyay, M.~Bose, and K.~C. Santosh, ``Vision Transformers excel in chest X-ray analysis,'' in \emph{Proc. IEEE Conf. Artif. Intell. (CAI)}, Santa Clara, CA, USA, 2025, pp. 1--6.
+
+\bibitem{rafi2025chest}
+M.~S.~M. Rafi, M.~S. Ali, M.~M. Hossen, S.~Z. R.~Sneha, and M.~S. Arefin, ``Chest X-ray analysis for pneumonia and tuberculosis detection using CNNs and Vision Transformers with explainable AI,'' in \emph{Proc. IEEE 2nd Int. Conf. Comput., Appl. Syst. (COMPAS)}, Kushtia, Bangladesh, Oct. 2025, pp. 1--6.
+
+\bibitem{kim2025explainable}
+K.~Kim, Y.~Choi, and J.~Seo, ``Explainable AI for multi-label chest X-ray diagnosis: Layer-wise Grad-CAM with hierarchical feature extraction,'' \emph{IEEE Access}, 2025.
+
+\bibitem{dey2025cbam}
+U.~K. Dey, ``CBAM-Enhanced DenseNet121 for multi-class chest X-ray classification with Grad-CAM explainability,'' \emph{IEEE Access}, vol.~13, pp. 1--14, 2025.
+
+\bibitem{naghash2025hycovit}
+O.~A. Naghash, N.~Ling, and X.~Li, ``HyCoViT: Hybrid convolution vision transformer with dynamic dropout for enhanced medical chest X-ray classification,'' \emph{IEEE Access}, vol.~13, pp. 1--13, 2025.
+
+\bibitem{fu2025davit}
+S.~Fu, C.~Tantithamthavorn, and T.~Le, ``DAViT: A domain-adapted vision transformer for automated pneumonia detection and explanation,'' \emph{IEEE Access}, 2025.
+
+\bibitem{vibina2025deep}
+W.~Vibina, ``Deep CNN-Driven Automated Lung Disease Identification,'' in \emph{Proc. IEEE Int. Conf.}, 2025.
+
+\bibitem{pabba2025explainable}
+P.~Pabba, R.~Samudrala, and R.~Chevuturi, ``Explainable Artificial Intelligence for Pulmonary Disease Detection from Chest Radiographs,'' in \emph{Proc. IEEE Int. Conf.}, 2025, pp. 1--6.
+
+\bibitem{qi2025attention}
+Y.~Qi, ``Attention Mechanisms in Medical Image Analysis: Advance, Challenge, and Future Direction,'' \emph{IEEE Access}, 2025.
+
+\bibitem{zhang2025abnormality}
+H.~Zhang \textit{et al.}, ``Chest X-Ray Report Generation Using Abnormality Guided Vision Language Model,'' \emph{IEEE Access}, vol.~13, pp. 1--12, 2025.
+
+\bibitem{barra2024comparative}
+P.~Barra, A.~Della~Greca, I.~Amaro, and A.~Tortora, ``A comparative analysis of XAI techniques for medical imaging: Challenges and opportunities,'' in \emph{Proc. IEEE Int. Conf. Bioinf. Biomed. (BIBM)}, Lisbon, Portugal, Dec. 2024, pp. 6782--6787.
+
+\bibitem{yaligar2024state}
+N.~Yaligar, S.~G, K.~Patil, P.~Kulkarni, and P.~Bhajantri, ``State-of-the-Art Deep Learning Strategies for Multi-Label Classification of Chest X-Ray Thoracic Disorders,'' in \emph{Proc. IEEE Int. Conf.}, 2024, pp. 1--6.
+
+\end{thebibliography}
+
+\end{document}

@@ -139,8 +139,8 @@ async def analyze(
         from app.backend import config as ml_config
 
         pred_idx = ml_config.CLASS_NAMES.index(result["predicted_class"])
-        grad = await asyncio.to_thread(gradcam_for, img, pred_idx)
-        vit = await asyncio.to_thread(vit_attention_for, img)
+        grad = await asyncio.to_thread(gradcam_for, img, pred_idx, model_key)
+        vit = await asyncio.to_thread(vit_attention_for, img, pred_idx, model_key)
         result["timing"]["explainability_ms"] = grad["explainability_ms"] + vit["explainability_ms"]
         result["timing"]["total_ms"] += result["timing"]["explainability_ms"]
     except RuntimeError as exc:

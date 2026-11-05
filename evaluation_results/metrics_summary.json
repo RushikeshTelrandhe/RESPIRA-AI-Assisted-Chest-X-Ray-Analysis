@@ -1,0 +1,131 @@
+{
+    "evaluation_timestamp": "2026-10-23 14:04:05",
+    "split": "test",
+    "total_test_samples": 1697,
+    "checkpoint_evaluated": "C:\\Users\\Siddhant Dongre\\Desktop\\projects\\RESPIRA-AI-Assisted-Chest-X-Ray-Analysis\\models\\methodology_fusion\\best_model.pth",
+    "checkpoint_epoch": 47,
+    "inference_mode": "Deterministic (Fast single forward pass)",
+    "headline_metrics": {
+        "top1_accuracy_percent": 78.2,
+        "top2_accuracy_percent": 96.35,
+        "macro_roc_auc": 0.9643,
+        "macro_precision": 0.7898,
+        "macro_recall": 0.7901,
+        "macro_f1": 0.7852,
+        "average_specificity": 0.9562,
+        "pneumonia_grouped_accuracy_percent": 87.33,
+        "clinical_grouped_accuracy_percent": 92.16,
+        "mean_predictive_confidence": 0.7866,
+        "mean_uncertainty_entropy": 0.341,
+        "inference_duration_seconds": 96.01,
+        "throughput_samples_per_sec": 17.7
+    },
+    "per_class_metrics": {
+        "Atelectasis": {
+            "sensitivity": "69.00%",
+            "specificity": "97.21%",
+            "precision": "84.15%",
+            "f1_score": "0.7582",
+            "roc_auc": "0.9631",
+            "support": 300
+        },
+        "Bacterial Pneumonia": {
+            "sensitivity": "82.27%",
+            "specificity": "90.92%",
+            "precision": "65.95%",
+            "f1_score": "0.7321",
+            "roc_auc": "0.9404",
+            "support": 299
+        },
+        "Normal": {
+            "sensitivity": "81.38%",
+            "specificity": "98.51%",
+            "precision": "91.83%",
+            "f1_score": "0.8629",
+            "roc_auc": "0.9834",
+            "support": 290
+        },
+        "Pulmonary Edema": {
+            "sensitivity": "89.33%",
+            "specificity": "96.21%",
+            "precision": "83.49%",
+            "f1_score": "0.8631",
+            "roc_auc": "0.9855",
+            "support": 300
+        },
+        "Tuberculosis": {
+            "sensitivity": "93.75%",
+            "specificity": "96.91%",
+            "precision": "80.91%",
+            "f1_score": "0.8686",
+            "roc_auc": "0.9907",
+            "support": 208
+        },
+        "Viral Pneumonia": {
+            "sensitivity": "58.33%",
+            "specificity": "93.99%",
+            "precision": "67.57%",
+            "f1_score": "0.6261",
+            "roc_auc": "0.9230",
+            "support": 300
+        }
+    },
+    "confusion_matrix_raw": [
+        [
+            207,
+            1,
+            0,
+            51,
+            41,
+            0
+        ],
+        [
+            0,
+            246,
+            8,
+            0,
+            1,
+            44
+        ],
+        [
+            2,
+            7,
+            236,
+            2,
+            3,
+            40
+        ],
+        [
+            31,
+            1,
+            0,
+            268,
+            0,
+            0
+        ],
+        [
+            6,
+            7,
+            0,
+            0,
+            195,
+            0
+        ],
+        [
+            0,
+            111,
+            13,
+            0,
+            1,
+            175
+        ]
+    ],
+    "classes": [
+        "Atelectasis",
+        "Bacterial Pneumonia",
+        "Normal",
+        "Pulmonary Edema",
+        "Tuberculosis",
+        "Viral Pneumonia"
+    ]
+}

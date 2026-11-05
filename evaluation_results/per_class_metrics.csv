@@ -1,0 +1,7 @@
+Disease,Sensitivity (Recall),Specificity,Precision,F1-Score,ROC-AUC,Support (Cases)
+Atelectasis,69.00%,97.21%,84.15%,0.7582,0.9631,300
+Bacterial Pneumonia,82.27%,90.92%,65.95%,0.7321,0.9404,299
+Normal,81.38%,98.51%,91.83%,0.8629,0.9834,290
+Pulmonary Edema,89.33%,96.21%,83.49%,0.8631,0.9855,300
+Tuberculosis,93.75%,96.91%,80.91%,0.8686,0.9907,208
+Viral Pneumonia,58.33%,93.99%,67.57%,0.6261,0.9230,300

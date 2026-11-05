@@ -1,0 +1,41 @@
+================================================================================
+RESPIRA - MODEL EVALUATION SUMMARY (TEST SET - 1,697 RADIOGRAPHS)
+Evaluated Checkpoint: best_model.pth (Trained Epoch 47)
+Evaluation Mode     : Deterministic (Fast single forward pass)
+================================================================================
+
+Top-1 Accuracy                 : 78.20%
+Top-2 Clinical Diagnostic Acc   : 96.35%
+Macro ROC-AUC (OVR)             : 0.9643 (96.43%)
+Macro Precision                : 0.7898
+Macro Recall (Sensitivity)     : 0.7901
+Macro F1-Score                 : 0.7852
+Average Specificity            : 0.9562
+Pneumonia Unified Accuracy     : 87.33%
+Clinical Grouped Accuracy      : 92.16%
+Inference Throughput           : 17.7 samples/sec
+
+--------------------------------------------------------------------------------
+PER-CLASS CLINICAL PERFORMANCE BREAKDOWN
+--------------------------------------------------------------------------------
+Disease                | Sensitivity  | Specificity  | Precision    | F1-Score   | ROC-AUC   | Support
+------------------------------------------------------------------------------------------------------
+Atelectasis            | 69.00%       | 97.21%       | 84.15%       | 0.7582     | 0.9631    | 300    
+Bacterial Pneumonia    | 82.27%       | 90.92%       | 65.95%       | 0.7321     | 0.9404    | 299    
+Normal                 | 81.38%       | 98.51%       | 91.83%       | 0.8629     | 0.9834    | 290    
+Pulmonary Edema        | 89.33%       | 96.21%       | 83.49%       | 0.8631     | 0.9855    | 300    
+Tuberculosis           | 93.75%       | 96.91%       | 80.91%       | 0.8686     | 0.9907    | 208    
+Viral Pneumonia        | 58.33%       | 93.99%       | 67.57%       | 0.6261     | 0.9230    | 300    
+
+--------------------------------------------------------------------------------
+CONFUSION MATRIX (RAW COUNTS)
+--------------------------------------------------------------------------------
+True \ Pred            | Atelect | Bacteri |  Normal | Pulmona | Tubercu | Viral P
+--------------------------------------------------------------------------------
+Atelectasis            |     207 |       1 |       0 |      51 |      41 |       0
+Bacterial Pneumonia    |       0 |     246 |       8 |       0 |       1 |      44
+Normal                 |       2 |       7 |     236 |       2 |       3 |      40
+Pulmonary Edema        |      31 |       1 |       0 |     268 |       0 |       0
+Tuberculosis           |       6 |       7 |       0 |       0 |     195 |       0
+Viral Pneumonia        |       0 |     111 |      13 |       0 |       1 |     175
+================================================================================

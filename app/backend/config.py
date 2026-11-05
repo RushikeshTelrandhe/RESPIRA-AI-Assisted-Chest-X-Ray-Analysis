@@ -48,6 +48,10 @@ CLASSIFICATION_CHECKPOINT = (
 
 DENSENET_CHECKPOINT = MODELS_DIR / "densenet" / "best_model.pth"
 
+METHODOLOGY_FUSION_CHECKPOINT = (
+    MODELS_DIR / "methodology_fusion" / "best_model.pth"
+)
+
 # ============================================================
 # MODEL CONFIGURATION
 # ============================================================

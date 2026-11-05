@@ -140,6 +140,11 @@ data/preprocessed/
 # IMPORTANT:
 # This stays local and is NOT pushed to GitHub.
 data/Lung_Disease_Preprocessed_512/
+/data/Lung_Disease_Preprocessed_512_Backup_Original
+/data/raw_downloads
+/docs
+RESPIRA_MODEL_EVALUATION_REPORT.txt
+Lung_Disease_Preprocessed_512.zip
 
 
 # =========================================================
