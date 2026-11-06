@@ -15,7 +15,18 @@ async function req<T>(path: string, options: RequestInit = {}, token?: string | 
     let detail = `Request failed (${res.status})`;
     try {
       const j = await res.json();
-      if (typeof j?.detail === "string") detail = j.detail;
+      if (typeof j?.detail === "string") {
+        detail = j.detail;
+      } else if (Array.isArray(j?.detail)) {
+        detail = j.detail
+          .map((e: any) => {
+            const field = Array.isArray(e?.loc) ? e.loc[e.loc.length - 1] : "Field";
+            return `${field}: ${e?.msg || "invalid value"}`;
+          })
+          .join("; ");
+      } else if (typeof j?.message === "string") {
+        detail = j.message;
+      }
     } catch { /* keep default */ }
     throw new Error(detail);
   }

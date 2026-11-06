@@ -22,11 +22,11 @@ DISCLAIMER = (
 
 class SignupRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=200)
-    license_no: str = Field(min_length=2, max_length=100)
+    license_no: str = Field(default="N/A", min_length=1, max_length=100)
     email: EmailStr
-    phone: str = Field(default="", max_length=50)
-    hospital: str = Field(default="", max_length=200)
-    specialization: str = Field(default="", max_length=200)
+    phone: str | None = Field(default="", max_length=50)
+    hospital: str | None = Field(default="", max_length=200)
+    specialization: str | None = Field(default="", max_length=200)
     password: str = Field(min_length=8, max_length=128)
     confirm_password: str = Field(min_length=8, max_length=128)
 

@@ -360,6 +360,8 @@ set "M2=%ROOT%\outputs\vit_512\checkpoints\best_model.pth"
 set "M3=%ROOT%\outputs\efficientnet_b0_512\evaluation\metrics.json"
 set "M4=%ROOT%\outputs\vit_512\evaluation\metrics.json"
 set "M5=%ROOT%\outputs\fusion\fusion_config.json"
+set "M6=%ROOT%\models\methodology_fusion\best_model.pth"
+set "M6_ALT=%ROOT%\outputs\methodology_fusion\checkpoints\best_model.pth"
 
 set "MODELS_OK=1"
 if not exist "%M1%" set "MODELS_OK=0"
@@ -367,9 +369,12 @@ if not exist "%M2%" set "MODELS_OK=0"
 if not exist "%M3%" set "MODELS_OK=0"
 if not exist "%M4%" set "MODELS_OK=0"
 if not exist "%M5%" set "MODELS_OK=0"
+if not exist "%M6%" (
+    if not exist "%M6_ALT%" set "MODELS_OK=0"
+)
 
 if "%MODELS_OK%"=="1" (
-    echo All 5 model files already present - skipping download.
+    echo All model files ^(including Finetuned Respira Fusion^) already present - skipping download.
     echo.
 ) else (
     echo Hugging Face repository:
@@ -395,6 +400,7 @@ if "%MODELS_OK%"=="1" (
         echo   outputs\efficientnet_b0_512\evaluation\metrics.json
         echo   outputs\vit_512\evaluation\metrics.json
         echo   outputs\fusion\fusion_config.json
+        echo   models\methodology_fusion\best_model.pth ^(Finetuned Respira Fusion^)
         echo.
         pause
         exit /b 1
