@@ -29,9 +29,13 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
     if db.query(Doctor).filter(Doctor.email == email).first():
         raise HTTPException(status_code=400, detail="An account with this email already exists")
     doctor = Doctor(
-        full_name=payload.full_name.strip(), license_no=payload.license_no.strip(),
-        email=email, phone=payload.phone.strip(), hospital=payload.hospital.strip(),
-        specialization=payload.specialization.strip(), password_hash=hash_password(payload.password),
+        full_name=payload.full_name.strip(),
+        license_no=payload.license_no.strip(),
+        email=email,
+        phone=(payload.phone or "").strip(),
+        hospital=(payload.hospital or "").strip(),
+        specialization=(payload.specialization or "").strip(),
+        password_hash=hash_password(payload.password),
     )
     db.add(doctor)
     db.add(AuditLog(doctor_id=doctor.id, action="signup", entity="doctor", entity_id=doctor.id))

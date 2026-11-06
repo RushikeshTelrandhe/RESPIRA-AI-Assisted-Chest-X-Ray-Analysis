@@ -34,6 +34,22 @@ export function Signup() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    if (step === 0) {
+      if (f.full_name.trim().length < 2) {
+        setError("Please enter your full name (at least 2 characters).");
+        return;
+      }
+      if (!f.email.trim() || !f.email.includes("@") || !f.email.includes(".")) {
+        setError("Please enter a valid email address with a domain (e.g. doctor@hospital.com).");
+        return;
+      }
+    }
+    if (step === 1) {
+      if (!f.license_no.trim()) {
+        setError("Please enter your medical license or registration number.");
+        return;
+      }
+    }
     if (
       step === 2 &&
       (f.password.length < 8 || f.password !== f.confirm_password)

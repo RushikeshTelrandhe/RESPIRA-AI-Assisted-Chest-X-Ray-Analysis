@@ -53,6 +53,17 @@ async def secure_headers(request: Request, call_next):
 @app.exception_handler(Exception)
 async def friendly_errors(request: Request, exc: Exception):
     from fastapi import HTTPException
+    from fastapi.exceptions import RequestValidationError
+
+    if isinstance(exc, RequestValidationError):
+        errors = []
+        for err in exc.errors():
+            loc = err.get("loc", [])
+            field = str(loc[-1]) if loc else "field"
+            msg = err.get("msg", "Invalid value")
+            # Clean up common Pydantic v2 error prefixes if any
+            errors.append(f"{field.replace('_', ' ').capitalize()}: {msg}")
+        return JSONResponse(status_code=422, content={"detail": "; ".join(errors)})
 
     if isinstance(exc, HTTPException):
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
