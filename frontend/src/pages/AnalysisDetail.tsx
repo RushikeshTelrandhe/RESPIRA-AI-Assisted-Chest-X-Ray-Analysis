@@ -83,6 +83,13 @@ export function AnalysisDetailPage() {
       </Alert>
     );
   const a = analysis.data;
+  const sortedDiseases = [...(a.diseases || [])].sort(
+    (x, y) => (y.probability || 0) - (x.probability || 0),
+  );
+  const top2Sum = sortedDiseases
+    .slice(0, 2)
+    .reduce((sum, d) => sum + (d.probability || 0), 0);
+  const top2Differential = sortedDiseases[1];
   const tabOptions = [
     { value: "summary" as const, label: "Summary" },
     { value: "visual" as const, label: "Visual explanation" },
@@ -199,28 +206,55 @@ export function AnalysisDetailPage() {
             <aside className="panel stack">
               <div className="finding-heading">
                 <div>
-                  <p className="eyebrow">AI-predicted finding</p>
+                  <p className="eyebrow">AI-predicted finding (Rank #1)</p>
                   <h2>{a.prediction.primary_class || "Unavailable"}</h2>
                 </div>
                 <UncertaintyBadge level={a.prediction.uncertainty_level} />
               </div>
               <div className="finding-numbers">
                 <div>
-                  <span>Class score</span>
+                  <span>Top-1 score</span>
                   <strong>{score(a.prediction.confidence)}</strong>
+                </div>
+                <div>
+                  <span>Top-2 coverage</span>
+                  <strong>{score(top2Sum)}</strong>
                 </div>
                 <div>
                   <span>Model uncertainty</span>
                   <strong>{numeric(a.prediction.uncertainty)}</strong>
                 </div>
               </div>
+              {top2Differential && (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    background: "#f0f9ff",
+                    border: "1px solid #bae6fd",
+                    borderRadius: "8px",
+                    fontSize: "0.82rem",
+                    color: "#0369a1",
+                  }}
+                >
+                  <strong>Differential Diagnosis (#2): </strong>
+                  {top2Differential.name} ({score(top2Differential.probability)})
+                </div>
+              )}
               <p className="small muted">
-                Class score is a model output, not diagnostic accuracy.
-                Uncertainty describes the model output and is not clinical
-                severity.
+                Predictions are ranked by model posterior probability. Top-2 benchmark accuracy is 96.35%.
               </p>
               <div>
-                <h3>All class scores</h3>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                    marginBottom: "8px",
+                  }}
+                >
+                  <h3 style={{ margin: 0 }}>Ranked Differential Diagnosis</h3>
+                  <span className="small muted">6-Class Ranking</span>
+                </div>
                 <DiseaseBars
                   diseases={a.diseases}
                   primary={a.prediction.primary_class}

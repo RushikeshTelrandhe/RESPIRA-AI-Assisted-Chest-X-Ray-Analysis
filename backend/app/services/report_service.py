@@ -79,15 +79,17 @@ def build_pdf(doctor, patient, study, analysis, images: dict[str, Path | None]) 
     y -= 8 * mm
 
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(18 * mm, y, "Disease probabilities")
+    c.drawString(18 * mm, y, "Ranked Differential Diagnosis (Probabilities)")
     y -= 6 * mm
     c.setFont("Helvetica", 9)
-    for name, p in probs.items():
+    sorted_probs = sorted(probs.items(), key=lambda item: float(item[1]), reverse=True)
+    for rank, (name, p) in enumerate(sorted_probs, start=1):
         if y < 60 * mm:
             c.showPage()
             y = H - 18 * mm
-        c.drawString(18 * mm, y, f"{name}")
-        _draw_bar(c, 70 * mm, y - 1 * mm, 70 * mm, 4 * mm, float(p))
+        tag = " [Primary]" if rank == 1 else " [Differential]" if rank == 2 else ""
+        c.drawString(18 * mm, y, f"#{rank} {name}{tag}")
+        _draw_bar(c, 75 * mm, y - 1 * mm, 65 * mm, 4 * mm, float(p))
         c.drawString(145 * mm, y, f"{float(p):.2%}")
         y -= 7 * mm
 
