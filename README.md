@@ -852,10 +852,12 @@ RESPIRA is developed solely for academic research, medical imaging experimentati
 
 ---
 
-## 👨‍💻 Authors & Acknowledgements
+## 👨‍💻 Project Team & Collaborators
 
 - **Rushikesh Telrandhe** — B.Tech Artificial Intelligence, G. H. Raisoni College of Engineering, Nagpur
-- **Project Team & Collaborators**
+- **Siddhant Dongre** — B.Tech Artificial Intelligence, G. H. Raisoni College of Engineering, Nagpur
+- **Tenjeen Kamble** — B.Tech Artificial Intelligence, G. H. Raisoni College of Engineering, Nagpur
+- **Shivam Joshi** — B.Tech Artificial Intelligence, G. H. Raisoni College of Engineering, Nagpur
 
 ### 🔗 Project Links
 - **GitHub Repository**: <https://github.com/RushikeshTelrandhe/RESPIRA-AI-Assisted-Chest-X-Ray-Analysis>
