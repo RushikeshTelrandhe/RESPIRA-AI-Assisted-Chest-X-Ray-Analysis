@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   UserRound,
+  Plus,
 } from "lucide-react";
 import {
   api,
@@ -27,8 +28,15 @@ import {
   useUnsavedChanges,
   useWorkspace,
 } from "../context/WorkspaceContext";
-import { Alert, LoadingBlock, PageHeader } from "../components/UI";
+import {
+  Alert,
+  LoadingBlock,
+  Modal,
+  PageHeader,
+  SubmitButton,
+} from "../components/UI";
 import { Disclaimer } from "../components/widgets";
+import { errorText } from "../utils/display";
 
 export function XrayTest() {
   const { token } = useAuth();
@@ -43,9 +51,29 @@ export function XrayTest() {
   const input = useRef<HTMLInputElement>(null);
   const fileRequest = useRef(0);
   const pending = useRef(false);
-  const patients = useResource<Patient[]>("analysis-patients", () =>
+  const blankPatient = {
+    full_name: "",
+    patient_code: "",
+    age: "",
+    gender: "",
+    phone: "",
+    medical_history: "",
+    notes: "",
+  };
+  const [addPatientOpen, setAddPatientOpen] = useState(false);
+  const [addPatientForm, setAddPatientForm] = useState(blankPatient);
+  const [addPatientBusy, setAddPatientBusy] = useState(false);
+  const [addPatientError, setAddPatientError] = useState("");
+
+  const patients = useResource<Patient[]>("patients:list", () =>
     api.get("/api/v1/patients", token),
   );
+
+  useEffect(() => {
+    // Refresh patient list on component mount so newly created records appear immediately
+    patients.reload();
+  }, []);
+
   const status = useResource<ModelStatus>("model-status", () =>
     api.get("/api/v1/models/status", token),
   );
@@ -170,8 +198,46 @@ export function XrayTest() {
       setBusy(false);
     }
   }
+  async function handleCreatePatientInline(e: FormEvent) {
+    e.preventDefault();
+    if (addPatientBusy) return;
+    setAddPatientBusy(true);
+    setAddPatientError("");
+    try {
+      const created = await api.post<Patient>(
+        "/api/v1/patients",
+        {
+          ...addPatientForm,
+          age: addPatientForm.age ? Number(addPatientForm.age) : 0,
+        },
+        token,
+      );
+      cache.invalidate("patients:");
+      cache.invalidate("analysis-patients");
+      cache.invalidate("dashboard");
+      setDraft((d) => ({ ...d, patientId: created.id }));
+      setAddPatientForm(blankPatient);
+      setAddPatientOpen(false);
+      patients.reload();
+    } catch (err) {
+      setAddPatientError(errorText(err));
+    } finally {
+      setAddPatientBusy(false);
+    }
+  }
+
+  const setPatientField =
+    (key: keyof typeof blankPatient) =>
+    (
+      e: React.ChangeEvent<
+        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      >,
+    ) =>
+      setAddPatientForm({ ...addPatientForm, [key]: e.target.value });
+
   return (
-    <form className="stack" onSubmit={analyze}>
+    <>
+      <form className="stack" onSubmit={analyze}>
       <PageHeader
         eyebrow="Guided workflow"
         title="New chest X-ray analysis"
@@ -218,25 +284,46 @@ export function XrayTest() {
               <Alert retry={patients.reload}>{patients.error}</Alert>
             ) : (
               <>
-                <select
-                  className="input"
-                  aria-label="Select patient"
-                  required
-                  value={draft.patientId}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, patientId: e.target.value }))
-                  }
-                >
-                  <option value="">Choose a patient…</option>
-                  {filtered.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.full_name} ({p.patient_code || p.id.slice(0, 8)})
-                    </option>
-                  ))}
-                </select>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <select
+                    className="input"
+                    aria-label="Select patient"
+                    required
+                    style={{ flex: 1 }}
+                    value={draft.patientId}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, patientId: e.target.value }))
+                    }
+                  >
+                    <option value="">Choose a patient…</option>
+                    {filtered.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name} ({p.patient_code || p.id.slice(0, 8)})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={() => patients.reload()}
+                    title="Refresh patient list"
+                    aria-label="Refresh patient list"
+                    style={{ padding: "8px 10px" }}
+                  >
+                    <RefreshCw size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => setAddPatientOpen(true)}
+                    style={{ whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <Plus size={16} />
+                    Add patient
+                  </button>
+                </div>
                 <p className="field-hint">
-                  Cannot find the record?{" "}
-                  <Link to="/patients">Add a patient</Link> first.
+                  Cannot find the record? Search above or click <strong>Add patient</strong> to register them immediately.
                 </p>
               </>
             )}
@@ -482,5 +569,107 @@ export function XrayTest() {
         </aside>
       </div>
     </form>
+    <Modal
+      open={addPatientOpen}
+      title="Add patient for analysis"
+      onDismiss={() => !addPatientBusy && setAddPatientOpen(false)}
+    >
+      <form className="modal-body stack" onSubmit={handleCreatePatientInline}>
+        {addPatientError && <Alert>{addPatientError}</Alert>}
+        <div className="form-grid">
+          <div>
+            <label className="label" htmlFor="new-patient-name">
+              Full name *
+            </label>
+            <input
+              id="new-patient-name"
+              className="input"
+              required
+              value={addPatientForm.full_name}
+              onChange={setPatientField("full_name")}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="new-patient-code">
+              Patient code
+            </label>
+            <input
+              id="new-patient-code"
+              className="input"
+              value={addPatientForm.patient_code}
+              onChange={setPatientField("patient_code")}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="new-patient-age">
+              Age
+            </label>
+            <input
+              id="new-patient-age"
+              className="input"
+              type="number"
+              min="0"
+              max="150"
+              value={addPatientForm.age}
+              onChange={setPatientField("age")}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="new-patient-gender">
+              Gender
+            </label>
+            <select
+              id="new-patient-gender"
+              className="input"
+              value={addPatientForm.gender}
+              onChange={setPatientField("gender")}
+            >
+              <option value="">Not provided</option>
+              <option>Female</option>
+              <option>Male</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="new-patient-phone">
+              Phone
+            </label>
+            <input
+              id="new-patient-phone"
+              className="input"
+              type="tel"
+              value={addPatientForm.phone}
+              onChange={setPatientField("phone")}
+            />
+          </div>
+          <div className="full-width">
+            <label className="label" htmlFor="new-patient-history">
+              Medical history
+            </label>
+            <textarea
+              id="new-patient-history"
+              className="input"
+              rows={2}
+              value={addPatientForm.medical_history}
+              onChange={setPatientField("medical_history")}
+            />
+          </div>
+        </div>
+        <div className="form-actions">
+          <button
+            type="button"
+            className="btn-ghost"
+            disabled={addPatientBusy}
+            onClick={() => setAddPatientOpen(false)}
+          >
+            Cancel
+          </button>
+          <SubmitButton busy={addPatientBusy} busyText="Registering patient…">
+            Save & select patient
+          </SubmitButton>
+        </div>
+      </form>
+    </Modal>
+    </>
   );
 }
