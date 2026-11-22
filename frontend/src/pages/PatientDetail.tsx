@@ -73,6 +73,7 @@ export function PatientDetail() {
     try {
       await api.del("/api/v1/patients/" + id, token);
       cache.invalidate("patients:");
+      cache.invalidate("analysis-patients");
       cache.invalidate("dashboard");
       nav("/patients", { replace: true });
     } catch (e) {

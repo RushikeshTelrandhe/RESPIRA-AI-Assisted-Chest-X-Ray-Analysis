@@ -1,9 +1,12 @@
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { LogOut } from "lucide-react";
 import { api, type Doctor } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import { useUnsavedChanges } from "../context/WorkspaceContext";
 import {
   Alert,
+  Modal,
   PageHeader,
   PasswordInput,
   SubmitButton,
@@ -12,8 +15,11 @@ import {
 import { errorText, initials } from "../utils/display";
 type Tab = "personal" | "professional" | "security";
 export function Profile() {
-  const { doctor, token, refresh } = useAuth();
+  const { doctor, token, refresh, logout } = useAuth();
+  const nav = useNavigate();
   const [tab, setTab] = useState<Tab>("personal");
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const base = {
     full_name: doctor?.full_name ?? "",
     phone: doctor?.phone ?? "",
@@ -81,6 +87,13 @@ export function Profile() {
       setBusy(false);
     }
   }
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    await logout();
+    nav("/login", { replace: true });
+  }
+
   const options = [
     { value: "personal" as const, label: "Personal" },
     { value: "professional" as const, label: "Professional" },
@@ -92,6 +105,17 @@ export function Profile() {
         eyebrow="Doctor account"
         title="Profile"
         description="Manage the details linked to your RESPIRA account."
+        action={
+          <button
+            type="button"
+            className="btn-ghost"
+            style={{ color: "#dc2626", borderColor: "#fca5a5", display: "inline-flex", alignItems: "center", gap: "6px" }}
+            onClick={() => setConfirmLogout(true)}
+          >
+            <LogOut size={16} />
+            Log out
+          </button>
+        }
       />
       <section className="patient-header">
         <span className="avatar avatar-lg">{initials(doctor.full_name)}</span>
@@ -262,9 +286,52 @@ export function Profile() {
                 Change password
               </SubmitButton>
             </div>
+            <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid var(--border, #e2e8f0)", gridColumn: "1 / -1" }}>
+              <h3>Doctor session</h3>
+              <p className="small muted" style={{ marginTop: "4px", marginBottom: "14px" }}>
+                You are currently signed in as <strong>{doctor.full_name}</strong> ({doctor.email}).
+              </p>
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ color: "#dc2626", borderColor: "#fca5a5", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                onClick={() => setConfirmLogout(true)}
+              >
+                <LogOut size={16} />
+                Log out of RESPIRA
+              </button>
+            </div>
           </form>
         )}
       </section>
+
+      <Modal
+        open={confirmLogout}
+        title="Log out of RESPIRA?"
+        onDismiss={() => setConfirmLogout(false)}
+      >
+        <div className="modal-body">
+          <p>Are you sure you want to end your current doctor session?</p>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => setConfirmLogout(false)}
+            >
+              Stay signed in
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ background: "#dc2626", borderColor: "#dc2626" }}
+              disabled={loggingOut}
+              onClick={() => void handleLogout()}
+            >
+              {loggingOut ? "Logging out…" : "Log out"}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

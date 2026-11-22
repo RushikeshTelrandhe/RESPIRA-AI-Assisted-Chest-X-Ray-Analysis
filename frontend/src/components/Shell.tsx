@@ -1,7 +1,7 @@
-import { MessageSquareText, Mail } from "lucide-react";
-import { useState } from "react";
+import { MessageSquareText, Mail, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
 import ThemeToggle from "../theme/ThemeToggle";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
   CircleHelp,
@@ -81,6 +81,24 @@ export function Shell() {
   const [collapsed, setCollapsed] = useState(savedCollapsed);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(event.target as Node)
+      ) {
+        setProfileOpen(false);
+      }
+    }
+    if (profileOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [profileOpen]);
 
   const page = location.pathname.startsWith("/analysis/")
     ? { eyebrow: "AI study", title: "Study review" }
@@ -229,13 +247,144 @@ export function Shell() {
               <Sparkles size={16} /> New study
             </NavLink>
 
-            <NavLink className="user-link" to="/profile">
-              <span className="avatar">{initials(doctor?.full_name)}</span>
-              <span className="user-name">
-                <b>{doctor?.full_name}</b>
-                <small>{doctor?.specialization || "Doctor account"}</small>
-              </span>
-            </NavLink>
+            <div className="user-profile-menu-container" ref={profileMenuRef} style={{ position: "relative" }}>
+              <button
+                type="button"
+                className="user-link user-profile-trigger"
+                onClick={() => setProfileOpen((prev) => !prev)}
+                aria-expanded={profileOpen}
+                aria-haspopup="true"
+                title="Account menu & logout"
+                style={{
+                  background: profileOpen ? "var(--border, #e2e8f0)" : "transparent",
+                  border: "none",
+                  padding: "4px 8px",
+                  borderRadius: "24px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  color: "inherit",
+                }}
+              >
+                <span className="avatar">{initials(doctor?.full_name)}</span>
+                <span className="user-name" style={{ textAlign: "left" }}>
+                  <b>{doctor?.full_name}</b>
+                  <small>{doctor?.specialization || "Doctor account"}</small>
+                </span>
+                <ChevronDown
+                  size={14}
+                  style={{
+                    transform: profileOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.2s ease",
+                    opacity: 0.7,
+                  }}
+                />
+              </button>
+
+              {profileOpen && (
+                <div
+                  className="user-profile-dropdown card"
+                  role="menu"
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    right: 0,
+                    minWidth: "240px",
+                    background: "var(--surface, #ffffff)",
+                    border: "1px solid var(--border, #d8e5e9)",
+                    borderRadius: "14px",
+                    boxShadow: "0 10px 30px rgba(0,0,0,0.14)",
+                    padding: "8px",
+                    zIndex: 1000,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                >
+                  <div style={{ padding: "8px 12px 10px", borderBottom: "1px solid var(--border, #e2e8f0)" }}>
+                    <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--ink, #0f172a)" }}>
+                      {doctor?.full_name}
+                    </div>
+                    <div style={{ fontSize: "0.78rem", color: "var(--muted, #64748b)", marginTop: "2px" }}>
+                      {doctor?.email}
+                    </div>
+                    {doctor?.hospital && (
+                      <div style={{ fontSize: "0.74rem", color: "#0f766e", marginTop: "2px", fontWeight: 500 }}>
+                        {doctor.hospital}
+                      </div>
+                    )}
+                  </div>
+
+                  <Link
+                    to="/profile"
+                    className="dropdown-item"
+                    onClick={() => setProfileOpen(false)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      fontSize: "0.85rem",
+                      color: "inherit",
+                      textDecoration: "none",
+                    }}
+                  >
+                    <UserRound size={16} />
+                    <span>View Profile</span>
+                  </Link>
+
+                  <Link
+                    to="/settings"
+                    className="dropdown-item"
+                    onClick={() => setProfileOpen(false)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      fontSize: "0.85rem",
+                      color: "inherit",
+                      textDecoration: "none",
+                    }}
+                  >
+                    <Settings size={16} />
+                    <span>Settings</span>
+                  </Link>
+
+                  <div style={{ height: "1px", background: "var(--border, #e2e8f0)", margin: "4px 0" }} />
+
+                  <button
+                    type="button"
+                    className="dropdown-item danger"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      requestLogout();
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      fontSize: "0.85rem",
+                      color: "#dc2626",
+                      background: "transparent",
+                      border: "none",
+                      width: "100%",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                    }}
+                  >
+                    <LogOut size={16} />
+                    <span>Log out</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

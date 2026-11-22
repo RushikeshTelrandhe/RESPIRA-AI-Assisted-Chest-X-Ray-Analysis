@@ -36,6 +36,7 @@ export function Patients() {
   const [form, setForm] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [createdPatient, setCreatedPatient] = useState<Patient | null>(null);
   const pending = useRef(false);
   useEffect(() => {
     const t = window.setTimeout(() => setQuery(q.trim()), 250);
@@ -64,13 +65,15 @@ export function Patients() {
     setBusy(true);
     setSubmitError("");
     try {
-      await api.post(
+      const created = await api.post<Patient>(
         "/api/v1/patients",
         { ...form, age: form.age ? Number(form.age) : 0 },
         token,
       );
       cache.invalidate("patients:");
+      cache.invalidate("analysis-patients");
       cache.invalidate("dashboard");
+      setCreatedPatient(created);
       setForm(blank);
       setOpen(false);
       list.reload();
@@ -94,6 +97,22 @@ export function Patients() {
           </button>
         }
       />
+      {createdPatient && (
+        <Alert kind="success">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
+            <span>
+              Patient <strong>{createdPatient.full_name}</strong> ({createdPatient.patient_code || createdPatient.id.slice(0, 8)}) registered successfully.
+            </span>
+            <Link
+              to={"/xray-test?patient=" + createdPatient.id}
+              className="btn-primary"
+              style={{ padding: "6px 14px", fontSize: "0.85rem" }}
+            >
+              Start Analysis for this patient →
+            </Link>
+          </div>
+        </Alert>
+      )}
       <div className="clinical-section-row">
         <div><h2>Patient directory</h2><p className="small muted">{list.data ? `${list.data.length} records` : 'Checking records…'}</p></div>
         <SearchInput value={q} onChange={setQ} label="Search patients" placeholder="Name, patient code or phone…" />
