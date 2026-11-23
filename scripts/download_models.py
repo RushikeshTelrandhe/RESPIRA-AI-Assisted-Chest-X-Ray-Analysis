@@ -24,6 +24,9 @@ FILES = {
         PROJECT_ROOT / "models/methodology_fusion/best_model.pth",
         PROJECT_ROOT / "outputs/methodology_fusion/checkpoints/best_model.pth",
     ],
+    "methodology_fusion/metrics.json": [
+        PROJECT_ROOT / "outputs/methodology_fusion/evaluation/metrics.json",
+    ],
 
     # 2. Standalone 512 Backbones
     "efficientnet_b0_512/best_model.pth": [
