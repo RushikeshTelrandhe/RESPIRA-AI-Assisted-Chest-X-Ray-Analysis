@@ -96,6 +96,24 @@ def main():
             token=args.token,
             commit_message="Add Finetuned Respira Fusion 512x512 best checkpoint (96.4% ROC-AUC)",
         )
+        print("✓ Checkpoint uploaded successfully!")
+
+        metrics_file = PROJECT_ROOT / "outputs" / "methodology_fusion" / "evaluation" / "metrics.json"
+        if metrics_file.exists():
+            print("Uploading evaluation metrics...")
+            try:
+                upload_file(
+                    path_or_fileobj=str(metrics_file),
+                    path_in_repo="methodology_fusion/metrics.json",
+                    repo_id=args.repo,
+                    repo_type="model",
+                    token=args.token,
+                    commit_message="Add methodology_fusion evaluation metrics",
+                )
+                print("✓ Uploaded methodology_fusion/metrics.json")
+            except Exception as exc:
+                print(f"[!] Could not upload metrics.json: {exc}")
+
         print("=" * 70)
         print("✓ UPLOAD COMPLETE!")
         print(f"Model URL: https://huggingface.co/{args.repo}/blob/main/methodology_fusion/best_model.pth")

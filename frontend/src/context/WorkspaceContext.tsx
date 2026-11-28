@@ -28,7 +28,7 @@ export type Draft = {
 };
 const initialDraft: Draft = {
   patientId: "",
-  model: "fusion",
+  model: "finetuned-fusion",
   file: null,
   meta: null,
 };

@@ -77,7 +77,7 @@ export function Dashboard() {
       <section className="dashboard-command">
         <div className="dashboard-command-copy">
           <span className={`command-status${ready ? " ready" : ""}`}>
-            <i /> {status.loading ? "Checking inference system" : ready ? `${readyModels} prediction models ready` : "Prediction models unavailable"}
+            <i /> {status.loading ? "Checking inference system" : ready ? `${readyModels} methodology model ready` : "Methodology model unavailable"}
           </span>
           <p className="eyebrow">Start a guided review</p>
           <h2>Move from radiograph to explainable model evidence.</h2>
@@ -182,7 +182,7 @@ export function Dashboard() {
               <>
                 <div className={`readiness-score${ready ? " ready" : ""}`}>
                   <strong>{readyModels}</strong>
-                  <span>of {models.length} models ready</span>
+                  <span>of {models.length} model{models.length === 1 ? "" : "s"} ready</span>
                 </div>
                 <div className="status-line compact-status">
                   <span className={`status-dot${ready ? "" : " off"}`} />

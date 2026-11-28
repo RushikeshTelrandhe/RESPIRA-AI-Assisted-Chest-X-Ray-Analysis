@@ -15,7 +15,7 @@ from PIL import Image
 from app.backend import config as ml_config
 from app.backend.config import CLASS_DESCRIPTIONS
 from app.backend.preprocessing import preprocess_pil
-from backend.app.services.model_manager import MODEL_KEYS, MODEL_REGISTRY, get_manager
+from backend.app.services.model_manager import MODEL_KEYS, MODEL_REGISTRY, get_manager, get_model_version
 
 MAX_BYTES = 15 * 1024 * 1024
 ALLOWED = {".png", ".jpg", ".jpeg"}
@@ -84,7 +84,7 @@ def run_standalone(image: Image.Image, model_key: str) -> dict:
     top_idx = int(np.argmax(probs))
     ordered = np.sort(np.asarray(probs))
     sample_uncertainty = float(np.mean(entropy))
-    version = next(m["version"] for m in MODEL_REGISTRY if m["key"] == model_key)
+    version = get_model_version(model_key)
     return {
         "predicted_class": ml_config.CLASS_NAMES[top_idx],
         "confidence": float(probs[top_idx]),
@@ -195,7 +195,7 @@ def run_standalone_512(image: Image.Image, model_key: str) -> dict:
     t2 = time.perf_counter()
     probs = torch.softmax(logits, dim=1)[0].detach().cpu().numpy().astype(float)
 
-    version = next(m["version"] for m in MODEL_REGISTRY if m["key"] == model_key)
+    version = get_model_version(model_key)
     return _build_standalone_result(
         probs, model_key, version, mgr.device,
         {
@@ -231,7 +231,7 @@ def run_fusion_512(image: Image.Image) -> dict:
     vit_probs = torch.softmax(vit_logits, dim=1)[0].detach().cpu().numpy().astype(float)
     fused = eff_w * np.asarray(eff_probs) + vit_w * np.asarray(vit_probs)
 
-    version = next(m["version"] for m in MODEL_REGISTRY if m["key"] == "fusion-512")
+    version = get_model_version("fusion-512")
     result = _build_standalone_result(
         fused, "fusion-512", version, mgr.device,
         {
@@ -244,18 +244,19 @@ def run_fusion_512(image: Image.Image) -> dict:
     return result
 
 
-def run_inference(image: Image.Image, model_key: str = "fusion") -> dict:
+def run_inference(image: Image.Image, model_key: str = "finetuned-fusion") -> dict:
     """Run the selected model. Returns real result + real timings (ms)."""
-    if model_key not in MODEL_KEYS:
+    key = (model_key or "finetuned-fusion").strip().lower()
+    if key not in MODEL_KEYS:
         raise ValueError(f"Unknown model '{model_key}'. Choose from: {', '.join(MODEL_KEYS)}.")
-    if model_key in ("finetuned-fusion", "finetuned_fusion"):
+    if key in ("finetuned-fusion", "finetuned_fusion"):
         return run_finetuned_fusion(image)
-    if model_key in ("efficientnet-512", "vit-512"):
-        return run_standalone_512(image, model_key)
-    if model_key == "fusion-512":
+    if key in ("efficientnet-512", "vit-512"):
+        return run_standalone_512(image, key)
+    if key == "fusion-512":
         return run_fusion_512(image)
-    if model_key != "fusion":
-        return run_standalone(image, model_key)
+    if key != "fusion":
+        return run_standalone(image, key)
     return run_fusion(image)
 
 
@@ -305,7 +306,7 @@ def run_finetuned_fusion(image: Image.Image) -> dict:
     p_clamped = np.clip(mean_probs, eps, 1.0)
     per_class_entropy = - (p_clamped * np.log2(p_clamped) + (1.0 - p_clamped) * np.log2(1.0 - p_clamped))
 
-    version = next(m["version"] for m in MODEL_REGISTRY if m["key"] == "finetuned-fusion")
+    version = get_model_version("finetuned-fusion")
 
     return {
         "predicted_class": ml_config.CLASS_NAMES[top_idx],
