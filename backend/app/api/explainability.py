@@ -65,7 +65,7 @@ async def gradcam(
     if not 0 <= target_class <= 5:
         raise HTTPException(status_code=400, detail="target_class must be 0-5")
     img = await _load_image(analysis_id, file, db, doctor)
-    model_key = (model or "fusion").strip().lower()
+    model_key = (model or "finetuned-fusion").strip().lower()
     if analysis_id and not model:
         row = db.query(Analysis).filter(Analysis.id == analysis_id).first()
         if row and row.model_version:
@@ -100,7 +100,7 @@ async def vit_attention(
     doctor: Doctor = Depends(get_current_doctor),
 ):
     img = await _load_image(analysis_id, file, db, doctor)
-    model_key = (model or "fusion").strip().lower()
+    model_key = (model or "finetuned-fusion").strip().lower()
     if analysis_id and not model:
         row = db.query(Analysis).filter(Analysis.id == analysis_id).first()
         if row and row.model_version:

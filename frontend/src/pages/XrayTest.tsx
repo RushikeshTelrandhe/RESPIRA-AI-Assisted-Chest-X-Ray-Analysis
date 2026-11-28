@@ -187,7 +187,7 @@ export function XrayTest() {
       cache.invalidate("patient-history:" + draft.patientId);
       flushSync(() => {
         images.set(result.analysis_id, submittedFile);
-        setDraft({ patientId: "", model: "fusion", file: null, meta: null });
+        setDraft({ patientId: "", model: "finetuned-fusion", file: null, meta: null });
         setGuard({ active: false, message: "" });
       });
       nav("/analysis/" + result.analysis_id);
@@ -428,10 +428,9 @@ export function XrayTest() {
             <div className="step-heading">
               <span className="step-circle">3</span>
               <div>
-                <h2>Choose an available model</h2>
+                <h2>Methodology model</h2>
                 <p>
-                  Availability and device details come directly from the
-                  backend.
+                  Dual-Backbone (EfficientNet-B0 + ViT-B/16, 512×512) Cross-Attention & Relational GCN.
                 </p>
               </div>
             </div>
@@ -467,7 +466,7 @@ export function XrayTest() {
                       <span>
                         <strong>{m.name}</strong>
                         <small>{m.description}</small>
-                        <em>{m.loaded ? "Available" : "Unavailable"}</em>
+                        <em>{m.loaded ? "Active Methodology Model" : "Unavailable"}</em>
                         {!m.loaded && m.error && (
                           <details className="model-error-details">
                             <summary>Why this model is unavailable</summary>
@@ -482,8 +481,7 @@ export function XrayTest() {
                   Backend device:{" "}
                   <strong>{status.data?.device || "not reported"}</strong>
                   {status.data?.gpu_name ? " · " + status.data.gpu_name : ""}.
-                  This display reports backend state; it does not switch CUDA
-                  on.
+                  High-resolution (512×512) inputs with Monte Carlo dropout calibrated uncertainty.
                 </p>
               </>
             )}

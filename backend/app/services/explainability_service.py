@@ -163,13 +163,13 @@ def _generate_finetuned_vit_attention(
     return original_rgb, Image.fromarray(np.uint8(colored)), Image.fromarray(overlay_np), vit_att.tolist()
 
 
-def gradcam_for(image: Image.Image, target_class: int, model_key: str = "fusion") -> dict:
+def gradcam_for(image: Image.Image, target_class: int, model_key: str = "finetuned-fusion") -> dict:
     if not 0 <= target_class <= 5:
         raise ValueError("target_class must be 0-5")
     mgr = get_manager()
     t0 = time.perf_counter()
 
-    key = (model_key or "fusion").strip().lower().replace("_", "-")
+    key = (model_key or "finetuned-fusion").strip().lower().replace("_", "-")
 
     if key in ("finetuned-fusion", "respira-fusion-finetuned") and mgr.finetuned_fusion is not None:
         target_layer = mgr.finetuned_fusion.cnn_backbone[8][0]
@@ -207,11 +207,11 @@ def gradcam_for(image: Image.Image, target_class: int, model_key: str = "fusion"
     }
 
 
-def vit_attention_for(image: Image.Image, target_class: int = 0, model_key: str = "fusion") -> dict:
+def vit_attention_for(image: Image.Image, target_class: int = 0, model_key: str = "finetuned-fusion") -> dict:
     mgr = get_manager()
     t0 = time.perf_counter()
 
-    key = (model_key or "fusion").strip().lower().replace("_", "-")
+    key = (model_key or "finetuned-fusion").strip().lower().replace("_", "-")
 
     if key in ("finetuned-fusion", "respira-fusion-finetuned") and mgr.finetuned_fusion is not None:
         original, heat, overlay, attn_map = _generate_finetuned_vit_attention(

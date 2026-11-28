@@ -76,8 +76,8 @@ export function Models() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Selectable registry</p>
-            <h2>Prediction models</h2>
+            <p className="eyebrow">Production registry</p>
+            <h2>Methodology model</h2>
           </div>
           <Cpu />
         </div>

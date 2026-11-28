@@ -18,71 +18,69 @@ from app.backend import config as ml_config
 
 
 # Selectable prediction models (keys accepted by POST /analyze).
-#
-# fusion/efficientnet/vit share the RespiraPipeline backbones (224x224).
-# efficientnet-512/vit-512 are high-resolution 512x512 backbones.
-# fusion-512 is a weighted probability fusion of the two 512 backbones
-# (weights from outputs/fusion/fusion_config.json).
-# densenet loads its own standalone checkpoint.
-#
-# Fusion (224) uses sigmoid multi-label heads.
-# Standalone baselines use softmax, as trained with CrossEntropy.
+# UI registry exposes ONLY the primary production methodology model.
 MODEL_REGISTRY: list[dict] = [
     {
         "key": "finetuned-fusion",
-        "name": "Finetuned Respira Fusion",
-        "version": "respira-fusion-finetuned-1.0",
+        "name": "RESPIRA Methodology Model (512x512)",
+        "version": "respira-fusion-512-methodology",
         "description": (
-            "Finetuned 512x512 Methodology Model: Cross-Attention + Relational GCN (96.4% ROC-AUC, 96.2% Top-2) (recommended)"
+            "Dual-Backbone (EfficientNet-B0 + ViT-B/16, 512x512) with Bidirectional Cross-Attention, "
+            "Disease-Conditioned Attention, Relational GCN & MC Dropout (Holdout Top-2: 96.35%, ROC-AUC: 96.43%)"
         ),
     },
-    {
-        "key": "fusion",
-        "name": "Respira Fusion",
+]
+
+# Legacy/experimental models retained internally for backward compatibility in backend inference
+LEGACY_MODELS: dict[str, dict] = {
+    "fusion": {
+        "name": "Respira Fusion (224)",
         "version": "respira-fusion-1.0",
-        "description": (
-            "Full EfficientNet-B0 + ViT-B/16 fusion pipeline (224x224)"
-        ),
+        "description": "Full EfficientNet-B0 + ViT-B/16 fusion pipeline (224x224)",
     },
-    {
-        "key": "efficientnet",
+    "efficientnet": {
         "name": "EfficientNet-B0",
         "version": "efficientnet-b0-1.0",
         "description": "CNN baseline, fast single-model prediction",
     },
-    {
-        "key": "vit",
+    "vit": {
         "name": "ViT-B/16",
         "version": "vit-b16-1.0",
         "description": "Transformer baseline, attention-based prediction",
     },
-    {
-        "key": "densenet",
+    "densenet": {
         "name": "DenseNet-121",
         "version": "densenet121-1.0",
         "description": "Research baseline CNN",
     },
-    {
-        "key": "efficientnet-512",
+    "efficientnet-512": {
         "name": "EfficientNet-B0 (512)",
         "version": "efficientnet-b0-512-1.0",
-        "description": "High-resolution 512x512 CNN (92.4% test accuracy)",
+        "description": "High-resolution 512x512 CNN",
     },
-    {
-        "key": "vit-512",
+    "vit-512": {
         "name": "ViT-B/16 (512)",
         "version": "vit-b16-512-1.0",
-        "description": "High-resolution 512x512 transformer (91.3% test accuracy)",
+        "description": "High-resolution 512x512 transformer",
     },
-    {
-        "key": "fusion-512",
+    "fusion-512": {
         "name": "Respira Fusion (512)",
         "version": "respira-fusion-512-1.0",
-        "description": "Weighted 512x512 EfficientNet + ViT fusion (92.9% val accuracy)",
+        "description": "Weighted 512x512 EfficientNet + ViT fusion",
     },
-]
+}
 
-MODEL_KEYS = [m["key"] for m in MODEL_REGISTRY] + ["finetuned_fusion"]
+MODEL_KEYS = [m["key"] for m in MODEL_REGISTRY] + ["finetuned_fusion"] + list(LEGACY_MODELS.keys())
+
+
+def get_model_version(key: str) -> str:
+    """Return model version string for any registered or legacy model."""
+    for m in MODEL_REGISTRY:
+        if m["key"] == key:
+            return m["version"]
+    if key in LEGACY_MODELS:
+        return LEGACY_MODELS[key]["version"]
+    return f"{key}-1.0"
 
 # High-resolution 512x512 checkpoint candidates (first existing wins).
 def _candidates(*paths: Path) -> list[Path]:
@@ -470,77 +468,36 @@ class ModelManager:
             else None
         )
 
-        arch = {}
-
-        if self.pipeline is not None:
-            try:
-                arch = (
-                    self.pipeline
-                    .model_info()
-                    .get("architecture", {})
-                )
-            except Exception:
-                arch = {}
+        model_is_ready = bool(
+            self.finetuned_fusion is not None
+            or (self.ready and self.pipeline is not None)
+        )
 
         return {
             "respira_ai": (
                 "loaded"
-                if self.ready
+                if model_is_ready
                 else ("error" if self.error else "loading")
             ),
             "backend": "ok",
             "device": str(self.device),
             "gpu_name": gpu_name,
-            "model_loaded": self.ready,
-            "error": self.error,
+            "model_loaded": model_is_ready,
+            "error": self.model_errors.get("finetuned-fusion") or self.error,
             "architecture": {
-                "DenseNet121": "research-baseline",
-                "FinetunedRespiraFusion": (
-                    "trained-checkpoint (512x512 Cross-Attention + GCN, 96.4% ROC-AUC)"
+                "MethodologyModel": "Dual-Backbone 512x512 Cross-Attention + Relational GCN",
+                "Status": (
+                    "loaded (Holdout Top-1: 78.55%, Top-2: 96.35%, ROC-AUC: 96.43%)"
                     if self.finetuned_fusion is not None
                     else "missing"
                 ),
-                "EfficientNet-B0": arch.get(
-                    "cnn",
-                    "EfficientNet-B0",
-                ),
-                "ViT-B/16": arch.get(
-                    "transformer",
-                    "ViT-B/16",
-                ),
-                "EfficientNet-B0-512": (
-                    "trained-checkpoint"
-                    if self.efficientnet_512 is not None
-                    else "missing"
-                ),
-                "ViT-B/16-512": (
-                    "trained-checkpoint"
-                    if self.vit_512 is not None
-                    else "missing"
-                ),
-                "Fusion-512": (
-                    f"weighted-{self.fusion_512_weights.get('efficientnet_weight', 0.35):.2f}/"
-                    f"{self.fusion_512_weights.get('vit_weight', 0.65):.2f}"
-                    if self.fusion_512_weights
-                    else "missing"
-                ),
-                "BidirectionalCrossAttention": (
-                    f"{arch.get('cross_attention_heads', 8)} heads"
-                ),
-                "DiseaseConditionedAttention": (
-                    f"{arch.get('disease_attention_heads', 8)} heads"
-                ),
-                "AdaptiveDiseaseFusion": (
-                    "trained-checkpoint"
-                    if self.ready
-                    else "unknown"
-                ),
-                "DiseaseRelationshipModeling": (
-                    f"{arch.get('relationship_heads', 8)} heads"
-                ),
-                "MultiLabelClassificationHeads": (
-                    "trained-checkpoint"
-                ),
+                "CNNBackbone": "EfficientNet-B0 (512x512 spatial features)",
+                "TransformerBackbone": "ViT-B/16 (512x512, 32x32 spatial patches)",
+                "BidirectionalCrossAttention": "8 heads (CNN <-> ViT token exchange)",
+                "DiseaseConditionedAttention": "6 disease-guided diagnostic query heads",
+                "GraphConvolution": "Relational GCN (inter-disease correlation matrix)",
+                "UncertaintyEstimation": "Monte Carlo Dropout (5 stochastic forward passes)",
+                "ClassificationHead": "Sigmoid multi-label head",
             },
             "classes": list(ml_config.CLASS_NAMES),
             "models": self.available_models(),

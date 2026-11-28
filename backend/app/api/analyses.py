@@ -116,13 +116,13 @@ def _analyze_payload(patient: Patient, study: XRayStudy, analysis: Analysis, dis
 async def analyze(
     patient_id: str = Form(...),
     file: UploadFile = File(...),
-    model: str = Form("fusion"),
+    model: str = Form("finetuned-fusion"),
     db: Session = Depends(get_db),
     doctor: Doctor = Depends(get_current_doctor),
 ):
     from backend.app.services.model_manager import MODEL_KEYS
 
-    model_key = (model or "fusion").strip().lower()
+    model_key = (model or "finetuned-fusion").strip().lower()
     if model_key not in MODEL_KEYS:
         raise HTTPException(status_code=400, detail=f"Unknown model '{model}'. Choose from: {', '.join(MODEL_KEYS)}.")
     patient = db.query(Patient).filter(Patient.id == patient_id, Patient.doctor_id == doctor.id).first()

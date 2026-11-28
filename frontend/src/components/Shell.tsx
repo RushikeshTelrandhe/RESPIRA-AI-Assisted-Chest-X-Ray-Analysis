@@ -215,7 +215,7 @@ export function Shell() {
               title="Open model status"
             >
               <i />
-              <span>{status.loading ? "Checking models" : backendReady ? `${readyCount} models ready` : "Models unavailable"}</span>
+              <span>{status.loading ? "Checking model" : backendReady ? `${readyCount} model${readyCount === 1 ? "" : "s"} ready` : "Model unavailable"}</span>
               <small>{device}</small>
             </NavLink>
 
